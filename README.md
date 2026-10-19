@@ -11,6 +11,7 @@ An unofficial WhatsApp client for the Light Phone III, built with the Light SDK'
 - Chats: text, photos, delivered/seen receipts
 - Voice and video calls, front and rear camera
 - Call log and contacts
+- Chat and call history from your main phone
 
 ## Install
 

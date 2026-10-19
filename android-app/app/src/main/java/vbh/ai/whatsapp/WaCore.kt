@@ -9,6 +9,7 @@ import android.content.Intent
 import android.media.Ringtone
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.flow.update
 import vbh.ai.whatsapp.walib.Client
 import vbh.ai.whatsapp.walib.Listener
 import java.io.File
@@ -28,6 +29,12 @@ object WaCore : Listener {
     const val CH_INCOMING = "incoming"
     const val CH_MESSAGES = "messages"
     private const val NOTIF_INCOMING = 2
+    private const val OLDER_PAGE = 50
+
+    /** A QR code was shown, so the next connection is a fresh link. */
+    @Volatile private var pairing = false
+
+    @Volatile private var lastHistoryAt = 0L
 
     fun mediaDir(): File = File(app.filesDir, "media").also { it.mkdirs() }
 
@@ -101,34 +108,30 @@ object WaCore : Listener {
     // --- contact resolution ---
 
     /** Looks up a name / phone number for [jid] off the main thread and publishes it for titles. */
-    fun resolve(jid: String) {
+    fun resolve(jid: String) = resolveAll(listOf(jid))
+
+    /** Looks up names and numbers for [jids] in one background pass, published in one update. */
+    fun resolveAll(jids: Collection<String>) {
         val c = client ?: return
-        val key = normalizeJid(jid)
+        if (jids.isEmpty()) return
         thread(name = "wa-resolve") {
-            try {
-                val name = c.contactName(key)
-                val phone = c.phoneNumber(key)
-                if (name.isNotBlank() &&
-                    MessageStore.names.value[key] != name
-                ) {
-                    MessageStore.names.value = MessageStore.names.value + (key to name)
+            val names = HashMap<String, String>()
+            val phones = HashMap<String, String>()
+            for (key in jids.map(::normalizeJid).distinct()) {
+                try {
+                    c.contactName(key).takeIf { it.isNotBlank() }?.let { names[key] = it }
+                    c.phoneNumber(key).takeIf { it.isNotBlank() }?.let { phones[key] = it }
+                } catch (_: Exception) {
                 }
-                if (phone.isNotBlank() &&
-                    MessageStore.phones.value[key] != phone
-                ) {
-                    MessageStore.phones.value = MessageStore.phones.value + (key to phone)
-                }
-            } catch (_: Exception) {
             }
+            // update {} so concurrent lookups don't overwrite each other's results.
+            if (names.any { MessageStore.names.value[it.key] != it.value }) MessageStore.names.update { it + names }
+            if (phones.any { MessageStore.phones.value[it.key] != it.value }) MessageStore.phones.update { it + phones }
         }
     }
 
     private fun resolveAllChats() {
-        MessageStore.messages.value
-            .map { it.chat }
-            .distinct()
-            .filterNot { it.endsWith("@g.us") }
-            .forEach { resolve(it) }
+        resolveAll(MessageStore.chatIds().filterNot { it.endsWith("@g.us") })
     }
 
     // --- contacts ---
@@ -360,10 +363,10 @@ object WaCore : Listener {
         MessageStore.add(Msg(tmp, chat, "me", "", body, System.currentTimeMillis(), true, chat.endsWith("@g.us"), pending = true))
         try {
             val id = client!!.sendText(chat, body)
-            MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
+            MessageStore.remove(tmp)
             MessageStore.add(Msg(id, chat, "me", "", body, System.currentTimeMillis(), true, chat.endsWith("@g.us"), status = Status.SENT))
         } catch (e: Exception) {
-            MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
+            MessageStore.remove(tmp)
             throw e
         }
     }
@@ -398,13 +401,13 @@ object WaCore : Listener {
                     media.thumbnail,
                 )
             val kept = File(mediaDir(), id.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".jpg").also { local.renameTo(it) }
-            MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
+            MessageStore.remove(tmp)
             MessageStore.add(
                 Msg(id, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, status = Status.SENT, media = kept.path),
             )
             WaState.log("media sent: ${media.kind} ${media.data.size / 1024} KB ${media.width}x${media.height}")
         } catch (e: Exception) {
-            MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
+            MessageStore.remove(tmp)
             local?.delete()
             throw e
         }
@@ -439,6 +442,7 @@ object WaCore : Listener {
     // --- Listener (called from Go goroutines) ---
 
     override fun onQR(code: String) {
+        pairing = true
         WaState.qr.value = code
         WaState.status.value = "scan the QR code in WhatsApp"
     }
@@ -448,6 +452,11 @@ object WaCore : Listener {
         WaState.connected.value = true
         WaState.status.value = "connected"
         WaState.ownNumber.value = client?.ownNumber().orEmpty()
+        // Just linked: the main phone now sends past chats, which takes a minute or two.
+        if (pairing) {
+            pairing = false
+            startHistorySync()
+        }
         resolveAllChats()
         loadContacts()
     }
@@ -471,7 +480,7 @@ object WaCore : Listener {
                 .Builder(app, CH_INCOMING)
                 .setSmallIcon(android.R.drawable.stat_sys_phone_call)
                 .setContentTitle(if (video) "Incoming WhatsApp video call" else "Incoming WhatsApp call")
-                .setContentText(MessageStore.title(normalizeJid(peer), MessageStore.messages.value))
+                .setContentText(MessageStore.title(normalizeJid(peer)))
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setOngoing(true)
@@ -544,7 +553,7 @@ object WaCore : Listener {
         )
         if (!isGroup) resolve(chat)
         if (!fromMe && MessageStore.openChat.value != chat) {
-            val title = MessageStore.title(chat, MessageStore.messages.value)
+            val title = MessageStore.title(chat)
             val n =
                 NotificationCompat
                     .Builder(app, CH_MESSAGES)
@@ -614,6 +623,45 @@ object WaCore : Listener {
         val cur = WaState.call.value?.takeIf { it.id == callID } ?: return
         WaState.call.value = cur.copy(remoteOrientation = quarterTurns.toInt())
     }
+
+    /** Shows "syncing" until the full history has arrived or the phone goes quiet. */
+    private fun startHistorySync() {
+        WaState.historySync.value = 0
+        lastHistoryAt = System.currentTimeMillis()
+        thread(name = "wa-history-watch") {
+            while (WaState.historySync.value != null) {
+                Thread.sleep(5_000)
+                val quietFor = System.currentTimeMillis() - lastHistoryAt
+                // The first batch can take a while after linking; between batches it's seconds.
+                val limit = if (WaState.historySync.value == 0) 3 * 60_000 else 60_000
+                if (quietFor > limit) WaState.historySync.value = null
+            }
+        }
+    }
+
+    override fun onHistory(json: String) {
+        try {
+            val batch = History.parse(json)
+            History.import(batch)
+            if (!batch.onDemand) {
+                lastHistoryAt = System.currentTimeMillis()
+                WaState.historySync.value?.let { n ->
+                    val done = batch.type == "FULL" && batch.progress >= 100
+                    WaState.historySync.value = if (done) null else n + batch.messages.size
+                }
+            }
+            resolveAll(batch.chats.keys.filterNot { it.endsWith("@g.us") })
+        } catch (e: Exception) {
+            WaState.log("history import failed: ${e.message}")
+        }
+    }
+
+    /** Asks the main phone for messages in [chat] older than the oldest stored one. */
+    fun requestOlderMessages(chat: String) =
+        bg {
+            val oldest = MessageStore.oldest(chat) ?: return@bg
+            client!!.requestOlderMessages(chat, oldest.id, oldest.ts, oldest.fromMe, OLDER_PAGE.toLong())
+        }
 
     override fun onLog(line: String) {
         WaState.log(line)

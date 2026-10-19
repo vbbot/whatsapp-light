@@ -87,9 +87,6 @@ class MainActivity : ComponentActivity() {
         val qr by WaState.qr.collectAsState()
         val call by WaState.call.collectAsState()
         val stack by Nav.stack.collectAsState()
-        val all by MessageStore.messages.collectAsState()
-        val names by MessageStore.names.collectAsState()
-        val phones by MessageStore.phones.collectAsState()
 
         // Back never hangs up: during a call it only sends the app to the background.
         BackHandler(enabled = call != null) { moveTaskToBack(true) }
@@ -105,30 +102,21 @@ class MainActivity : ComponentActivity() {
                 c != null && c.incoming && c.phase < 3 -> {
                     IncomingCallScreen(
                         c,
-                        callTitle(c, all).also {
-                            names
-                            phones
-                        },
+                        rememberTitle(callPeer(c)),
                     )
                 }
 
                 c != null && c.video && (c.localVideo || c.remoteVideo) -> {
                     VideoCallScreen(
                         c,
-                        callTitle(c, all).also {
-                            names
-                            phones
-                        },
+                        rememberTitle(callPeer(c)),
                     )
                 }
 
                 c != null -> {
                     InCallScreen(
                         c,
-                        callTitle(c, all).also {
-                            names
-                            phones
-                        },
+                        rememberTitle(callPeer(c)),
                     )
                 }
 
@@ -153,12 +141,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Name or number for the caller; never a raw LID. */
-    private fun callTitle(
-        c: CallUi,
-        all: List<Msg>,
-    ): String {
-        val peer = if (c.peer.contains("@")) normalizeJid(c.peer) else "${c.peer.removePrefix("+")}@s.whatsapp.net"
-        return MessageStore.title(peer, all)
-    }
+    /** The caller's chat JID, so the title is a name or number, never a raw LID. */
+    private fun callPeer(c: CallUi): String =
+        if (c.peer.contains("@")) normalizeJid(c.peer) else "${c.peer.removePrefix("+")}@s.whatsapp.net"
 }

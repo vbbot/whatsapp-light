@@ -9,21 +9,25 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,11 +58,15 @@ import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.lightClickable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.conflate
 import android.graphics.Color as AColor
 
 private const val LOADING_TEXT = "loading…"
 private const val MESSAGE_WIDTH_FRACTION = 0.875f
 private const val GROUP_GAP_MS = 15 * 60 * 1000L
+
+/** Messages loaded per step when scrolling up a thread. */
+private const val THREAD_PAGE = 100
 
 // ---------------------------------------------------------------- shared pieces
 
@@ -158,27 +166,86 @@ fun HomeScreen() {
     }
 }
 
+/** [MessageStore.title] for [chat], kept current as names and messages change. */
+@Composable
+fun rememberTitle(chat: String): String {
+    val changes by MessageStore.changes.collectAsState()
+    val names by MessageStore.names.collectAsState()
+    val phones by MessageStore.phones.collectAsState()
+    // Starts from a direct read (a few indexed lookups), so the title never shows a placeholder first.
+    val initial = remember(chat) { MessageStore.title(chat) }
+    return rememberQuery(chat, changes, names, phones, initial = initial) { MessageStore.title(chat) } ?: initial
+}
+
+/**
+ * Runs [query] off the main thread and again whenever one of [keys] changes. Null until the first
+ * result. A run always finishes: changes made meanwhile (history sync makes many) are folded into
+ * one re-run after it, rather than cancelling it, which could starve the screen of any result.
+ */
+@Composable
+fun <T> rememberQuery(
+    vararg keys: Any?,
+    initial: T? = null,
+    query: () -> T,
+): T? {
+    val currentKeys = androidx.compose.runtime.rememberUpdatedState(keys.toList())
+    val currentQuery = androidx.compose.runtime.rememberUpdatedState(query)
+    val state =
+        androidx.compose.runtime.produceState(initial) {
+            androidx.compose.runtime
+                .snapshotFlow { currentKeys.value }
+                .conflate()
+                .collect { value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { currentQuery.value() } }
+        }
+    return state.value
+}
+
+private var lastChatRows: List<Pair<ChatSummary, String>>? = null
+
 @Composable
 private fun ChatList() {
-    val all by MessageStore.messages.collectAsState()
-    val read by MessageStore.lastRead.collectAsState()
+    val changes by MessageStore.changes.collectAsState()
     val names by MessageStore.names.collectAsState()
     val phones by MessageStore.phones.collectAsState()
     val connected by WaState.connected.collectAsState()
-    val chats = remember(all) { MessageStore.chats(all) }
+    val syncing by WaState.historySync.collectAsState()
+    // Starts from the last result, so coming back to the list doesn't flash empty.
+    val rows =
+        rememberQuery(changes, names, phones, initial = lastChatRows) {
+            MessageStore.chats().map { it to MessageStore.title(it.chat) }.also { lastChatRows = it }
+        }
     val listState = rememberLazyListState()
     when {
-        chats.isNotEmpty() -> {
-            LightLazyScrollView(uniformItemHeightGridUnits = 4.5f, listState = listState) {
-                items(chats, key = { it.first }) { (chat, last) ->
-                    ChatRow(
-                        name = remember(names, phones, all) { MessageStore.title(chat, all) },
-                        time = formatRowTime(last.ts),
-                        unread = MessageStore.hasUnread(chat, all, read),
-                        onOpen = { Nav.push(Screen.Thread(chat)) },
+        rows == null -> {}
+
+        rows.isNotEmpty() -> {
+            Column(Modifier.fillMaxSize()) {
+                syncing?.let {
+                    Banner(
+                        if (it >
+                            0
+                        ) {
+                            "Syncing from your phone · %,d messages".format(it)
+                        } else {
+                            "Syncing messages from your phone…"
+                        },
                     )
                 }
+                LightLazyScrollView(modifier = Modifier.weight(1f), uniformItemHeightGridUnits = 4.5f, listState = listState) {
+                    items(rows, key = { it.first.chat }) { (summary, name) ->
+                        ChatRow(
+                            name = name,
+                            time = formatRowTime(summary.last.ts),
+                            unread = summary.unread,
+                            onOpen = { Nav.push(Screen.Thread(summary.chat)) },
+                        )
+                    }
+                }
             }
+        }
+
+        syncing != null -> {
+            StatusText("Syncing messages from your phone…")
         }
 
         !connected -> {
@@ -222,10 +289,14 @@ private fun ChatRow(
 @Composable
 private fun CallList() {
     val calls by CallLog.calls.collectAsState()
-    val all by MessageStore.messages.collectAsState()
+    val changes by MessageStore.changes.collectAsState()
     val names by MessageStore.names.collectAsState()
     val phones by MessageStore.phones.collectAsState()
-    LaunchedEffect(calls.size) { calls.map { it.peer }.distinct().forEach { WaCore.resolve(it) } }
+    LaunchedEffect(calls.size) { WaCore.resolveAll(calls.map { it.peer }) }
+    val titles =
+        rememberQuery(calls, changes, names, phones) {
+            calls.map { it.peer }.distinct().associateWith { MessageStore.title(it) }
+        }.orEmpty()
     val listState = rememberLazyListState()
     if (calls.isEmpty()) {
         StatusText("No calls yet.")
@@ -233,7 +304,7 @@ private fun CallList() {
     }
     LightLazyScrollView(uniformItemHeightGridUnits = 6f, listState = listState) {
         items(calls, key = { it.id }) { c ->
-            val name = remember(names, phones, all, c.peer) { MessageStore.title(c.peer, all) }
+            val name = titles[c.peer] ?: MessageStore.fallbackTitle(c.peer, phones[c.peer])
             CallRow(
                 name = name,
                 summary = c.summary,
@@ -356,24 +427,65 @@ fun TabBar(
 
 @Composable
 fun ThreadScreen(chat: String) {
-    val all by MessageStore.messages.collectAsState()
+    val changes by MessageStore.changes.collectAsState()
     val error by WaState.error.collectAsState()
-    val msgs = remember(all, chat) { all.filter { it.chat == chat } }
-    val names by MessageStore.names.collectAsState()
-    val phones by MessageStore.phones.collectAsState()
-    val title = remember(all, chat, names, phones) { MessageStore.title(chat, all) }
-    val scrollState = rememberScrollState()
+    var limit by remember(chat) { mutableIntStateOf(THREAD_PAGE) }
+    // The newest [limit] messages, and whether more are stored than that.
+    // The first page is read right away (one small indexed query), so the thread never opens empty.
+    val firstPage = remember(chat) { MessageStore.thread(chat, THREAD_PAGE) to (MessageStore.count(chat) > THREAD_PAGE) }
+    val page =
+        rememberQuery(chat, changes, limit, initial = firstPage) {
+            MessageStore.thread(chat, limit) to
+                (MessageStore.count(chat) > limit)
+        }
+    val msgs = page?.first.orEmpty()
+    val moreStored = page?.second == true
+    val title = rememberTitle(chat)
+    val listState = rememberLazyListState()
     val isGroup = chat.endsWith("@g.us")
 
     // Anything that arrives while the thread is open counts as read.
     val seenStatus by AppSettings.seenStatus.collectAsState()
     val connected by WaState.connected.collectAsState()
-    LaunchedEffect(msgs.size, seenStatus, connected) { WaCore.sendReadReceipts(chat) }
+    val newest = msgs.lastOrNull()
+    LaunchedEffect(newest?.id, seenStatus, connected) { WaCore.sendReadReceipts(chat) }
     val tag = remember(msgs, isGroup) { if (isGroup) null else receiptTag(msgs) }
-    LaunchedEffect(msgs.size) {
+
+    // The list is laid out bottom-up (item 0 is the spacer under the newest message), so it opens
+    // at the bottom, stays there as messages arrive, and older pages load in above without moving
+    // the view. Sending a message goes back down to it.
+    LaunchedEffect(newest?.id) {
+        if (newest == null) return@LaunchedEffect
         MessageStore.markRead(chat)
-        delay(50)
-        scrollState.scrollTo(scrollState.maxValue)
+        if (newest.fromMe) listState.scrollToItem(0)
+    }
+
+    // Near the top: show more of what's stored, else ask the main phone for earlier messages.
+    var askedFor by remember(chat) { mutableStateOf<String?>(null) }
+    val oldestId = msgs.firstOrNull { !it.pending }?.id
+    val nearTop by remember(listState) {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            info.totalItemsCount > 0 && (info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= info.totalItemsCount - 3
+        }
+    }
+    LaunchedEffect(nearTop, moreStored, oldestId, connected) {
+        if (!nearTop || msgs.isEmpty()) return@LaunchedEffect
+        if (moreStored) {
+            limit += THREAD_PAGE
+        } else if (connected && oldestId != null && askedFor != oldestId) {
+            askedFor = oldestId
+            WaCore.requestOlderMessages(chat)
+        }
+    }
+    // Waiting on the phone: the line stays until something arrives or it has had time to answer.
+    var waiting by remember(chat) { mutableStateOf(false) }
+    LaunchedEffect(askedFor, oldestId) {
+        waiting = askedFor != null && askedFor == oldestId
+        if (waiting) {
+            delay(15_000)
+            waiting = false
+        }
     }
 
     ScreenColumn {
@@ -388,22 +500,28 @@ fun ThreadScreen(chat: String) {
                     if (msgs.isEmpty()) {
                         StatusText("No messages yet.")
                     } else {
-                        // Variable-height rows: a plain scroll view, not the lazy one.
-                        LightScrollView(scrollState = scrollState) {
-                            msgs.forEachIndexed { i, m ->
-                                val prev = msgs.getOrNull(i - 1)
-                                val showTime =
-                                    prev == null || prev.fromMe != m.fromMe ||
-                                        prev.sender != m.sender || m.ts - prev.ts > GROUP_GAP_MS
-                                MessageRow(
-                                    m,
-                                    showTime = showTime,
-                                    showSender = isGroup && showTime,
-                                    tag = tag?.takeIf { it.first == m.id }?.second,
-                                    chatTitle = title,
-                                )
+                        // Variable-height rows, newest at the bottom; only the visible ones are built.
+                        Row(Modifier.fillMaxSize()) {
+                            LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.weight(1f)) {
+                                item(key = "bottom") { Box(Modifier.height(1f.gridUnitsAsDp())) }
+                                items(msgs.size, key = { msgs[msgs.size - 1 - it].id }) { j ->
+                                    val i = msgs.size - 1 - j
+                                    val m = msgs[i]
+                                    val prev = msgs.getOrNull(i - 1)
+                                    val showTime =
+                                        prev == null || prev.fromMe != m.fromMe ||
+                                            prev.sender != m.sender || m.ts - prev.ts > GROUP_GAP_MS
+                                    MessageRow(
+                                        m,
+                                        showTime = showTime,
+                                        showSender = isGroup && showTime,
+                                        tag = tag?.takeIf { it.first == m.id }?.second,
+                                        chatTitle = title,
+                                    )
+                                }
+                                if (waiting) item(key = "loading") { Banner("loading earlier messages…") }
                             }
-                            Box(Modifier.height(1f.gridUnitsAsDp()))
+                            ThreadScrollBar(listState)
                         }
                     }
                 }
@@ -422,6 +540,50 @@ fun ThreadScreen(chat: String) {
                     icon(LightIcons.COMPOSE_MESSAGE, "Write a message to $title") { Nav.push(Screen.Composer(chat)) },
                 ),
         )
+    }
+}
+
+/**
+ * Scroll position for the thread, drawn like the Light scroll bar (rail and thumb). Rows vary in
+ * height, so the content height is estimated from the rows on screen.
+ */
+@Composable
+private fun ThreadScrollBar(listState: androidx.compose.foundation.lazy.LazyListState) {
+    val metrics by remember(listState) {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val visible = info.visibleItemsInfo
+            val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
+            if (visible.isEmpty() || viewport <= 0f) return@derivedStateOf null
+            val avg = visible.sumOf { it.size }.toFloat() / visible.size
+            val maxScroll = avg * info.totalItemsCount - viewport
+            if (maxScroll <= 0f) return@derivedStateOf null
+            // Distance scrolled up from the bottom.
+            val scrolled = (listState.firstVisibleItemIndex * avg + listState.firstVisibleItemScrollOffset).coerceIn(0f, maxScroll)
+            val thumb = (viewport / (viewport + maxScroll)).coerceIn(0.1f, 0.85f)
+            thumb to (1f - scrolled / maxScroll) * (1f - thumb)
+        }
+    }
+    val barColor = LightThemeTokens.colors.content
+    Box(Modifier.width(2f.gridUnitsAsDp()).fillMaxHeight()) {
+        val (thumb, top) = metrics ?: return@Box
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .fillMaxHeight()
+                    .align(Alignment.TopCenter)
+                    .background(barColor),
+            )
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = maxHeight * top)
+                    .width(5.dp)
+                    .height(maxHeight * thumb)
+                    .background(barColor),
+            )
+        }
     }
 }
 
@@ -564,9 +726,7 @@ private val keyboardOptions = MutableStateFlow(defaultKeyboardOptions())
 
 @Composable
 fun ComposerScreen(chat: String) {
-    val all by MessageStore.messages.collectAsState()
-    val names by MessageStore.names.collectAsState()
-    val title = remember(all, chat, names) { MessageStore.title(chat, all) }
+    val title = rememberTitle(chat)
     val state = rememberTextFieldState(Drafts.get(chat))
     LaunchedEffect(state.text) { Drafts.set(chat, state.text.toString()) }
     LightTextInputEditor(
@@ -661,7 +821,7 @@ fun NumberScreen(purpose: Purpose) {
 /** Pick someone to message or call. The first row is always "Enter a number". */
 @Composable
 fun ContactsScreen(purpose: Purpose) {
-    val all by MessageStore.messages.collectAsState()
+    val changes by MessageStore.changes.collectAsState()
     val names by MessageStore.names.collectAsState()
     val phones by MessageStore.phones.collectAsState()
     val calls by CallLog.calls.collectAsState()
@@ -672,17 +832,17 @@ fun ContactsScreen(purpose: Purpose) {
 
     // Saved contacts, plus anyone already chatted with or called who isn't a saved contact.
     val entries =
-        remember(contacts, all, calls, names, phones) {
+        rememberQuery(contacts, changes, calls, names, phones) {
             val known = contacts.map { it.chat }.toSet()
             val others =
-                (MessageStore.chats(all).map { it.first } + calls.map { it.peer })
+                (MessageStore.chats().map { it.chat } + calls.map { it.peer })
                     .distinct()
                     .filter { it !in known && !it.endsWith("@g.us") }
-                    .map { Contact(it, MessageStore.title(it, all), phones[it].orEmpty()) }
+                    .map { Contact(it, MessageStore.title(it), phones[it].orEmpty()) }
                     .filter { it.name != "Unknown contact" }
             // Named people alphabetically, bare numbers after them.
             (contacts + others).sortedWith(compareBy({ it.name.startsWith("+") }, { it.name.lowercase() }))
-        }
+        } ?: contacts
     val listState = rememberLazyListState()
     val title = if (purpose == Purpose.CALL) "New call" else "New chat"
     val back = if (purpose == Purpose.CALL) "calls" else "messages"
@@ -753,9 +913,7 @@ private fun ContactRow(
 /** Full-screen choice between a voice and a video call, opened from a thread's call button. */
 @Composable
 fun CallTypeScreen(chat: String) {
-    val all by MessageStore.messages.collectAsState()
-    val names by MessageStore.names.collectAsState()
-    val title = remember(all, chat, names) { MessageStore.title(chat, all) }
+    val title = rememberTitle(chat)
     ScreenColumn {
         LightTopBar(
             leftButton = backButton(title) { Nav.pop() },
@@ -776,9 +934,7 @@ fun CallConfirmScreen(
     video: Boolean,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val all by MessageStore.messages.collectAsState()
-    val names by MessageStore.names.collectAsState()
-    val title = remember(all, chat, names) { MessageStore.title(chat, all) }
+    val title = rememberTitle(chat)
 
     fun dial() {
         // Back to the thread first, so ending the call returns there, not to this screen.

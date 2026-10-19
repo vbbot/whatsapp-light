@@ -1,0 +1,152 @@
+package vbh.ai.whatsapp
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+
+/**
+ * App data: messages, calls and per-chat state. WhatsApp's own session state lives separately
+ * in wa.db (whatsmeow's store). Files are app-private, like the official client's.
+ */
+class ChatDb(
+    context: Context,
+    name: String? = NAME,
+) : SQLiteOpenHelper(context, name, null, VERSION) {
+    // Reads (screens) run alongside writes (incoming messages, history) instead of queueing.
+    override fun onConfigure(db: SQLiteDatabase) {
+        db.enableWriteAheadLogging()
+    }
+
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                chat TEXT NOT NULL,
+                sender TEXT NOT NULL,
+                sender_name TEXT NOT NULL DEFAULT '',
+                text TEXT NOT NULL,
+                ts INTEGER NOT NULL,
+                from_me INTEGER NOT NULL,
+                is_group INTEGER NOT NULL,
+                status INTEGER NOT NULL DEFAULT 0,
+                read_sent INTEGER NOT NULL DEFAULT 0,
+                media TEXT NOT NULL DEFAULT ''
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("CREATE INDEX messages_chat_ts ON messages(chat, ts)")
+        db.execSQL(
+            """
+            CREATE TABLE calls (
+                id TEXT PRIMARY KEY,
+                peer TEXT NOT NULL,
+                incoming INTEGER NOT NULL,
+                started_at INTEGER NOT NULL,
+                answered_at INTEGER NOT NULL DEFAULT 0,
+                ended_at INTEGER NOT NULL DEFAULT 0,
+                outcome TEXT NOT NULL,
+                video INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("CREATE INDEX calls_started ON calls(started_at)")
+        // last_read: newest message timestamp the user has seen (drives the unread marker).
+        // name: chat name from history sync (groups, saved contacts), if any.
+        db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '')")
+    }
+
+    override fun onUpgrade(
+        db: SQLiteDatabase,
+        oldVersion: Int,
+        newVersion: Int,
+    ) = Unit
+
+    companion object {
+        const val NAME = "chats.db"
+        const val VERSION = 1
+
+        @Volatile private var shared: ChatDb? = null
+
+        /** The app's one connection to chats.db (shared by [MessageStore] and [CallLog]). */
+        fun get(context: Context): ChatDb =
+            shared ?: synchronized(this) { shared ?: ChatDb(context.applicationContext).also { shared = it } }
+
+        fun values(m: Msg) =
+            ContentValues().apply {
+                put("id", m.id)
+                put("chat", m.chat)
+                put("sender", m.sender)
+                put("sender_name", m.senderName)
+                put("text", m.text)
+                put("ts", m.ts)
+                put("from_me", if (m.fromMe) 1 else 0)
+                put("is_group", if (m.isGroup) 1 else 0)
+                put("status", m.status)
+                put("read_sent", if (m.readSent) 1 else 0)
+                put("media", m.media)
+            }
+
+        fun msg(c: Cursor) =
+            Msg(
+                id = c.getString(c.getColumnIndexOrThrow("id")),
+                chat = c.getString(c.getColumnIndexOrThrow("chat")),
+                sender = c.getString(c.getColumnIndexOrThrow("sender")),
+                senderName = c.getString(c.getColumnIndexOrThrow("sender_name")),
+                text = c.getString(c.getColumnIndexOrThrow("text")),
+                ts = c.getLong(c.getColumnIndexOrThrow("ts")),
+                fromMe = c.getInt(c.getColumnIndexOrThrow("from_me")) == 1,
+                isGroup = c.getInt(c.getColumnIndexOrThrow("is_group")) == 1,
+                status = c.getInt(c.getColumnIndexOrThrow("status")),
+                readSent = c.getInt(c.getColumnIndexOrThrow("read_sent")) == 1,
+                media = c.getString(c.getColumnIndexOrThrow("media")),
+            )
+
+        fun values(r: CallRecord) =
+            ContentValues().apply {
+                put("id", r.id)
+                put("peer", r.peer)
+                put("incoming", if (r.incoming) 1 else 0)
+                put("started_at", r.startedAt)
+                put("answered_at", r.answeredAt)
+                put("ended_at", r.endedAt)
+                put("outcome", r.outcome.name)
+                put("video", if (r.video) 1 else 0)
+            }
+
+        fun call(c: Cursor) =
+            CallRecord(
+                id = c.getString(c.getColumnIndexOrThrow("id")),
+                peer = c.getString(c.getColumnIndexOrThrow("peer")),
+                incoming = c.getInt(c.getColumnIndexOrThrow("incoming")) == 1,
+                startedAt = c.getLong(c.getColumnIndexOrThrow("started_at")),
+                answeredAt = c.getLong(c.getColumnIndexOrThrow("answered_at")),
+                endedAt = c.getLong(c.getColumnIndexOrThrow("ended_at")),
+                outcome =
+                    runCatching { CallRecord.Outcome.valueOf(c.getString(c.getColumnIndexOrThrow("outcome"))) }
+                        .getOrDefault(CallRecord.Outcome.MISSED),
+                video = c.getInt(c.getColumnIndexOrThrow("video")) == 1,
+            )
+    }
+}
+
+/** Runs [block] in one transaction. */
+inline fun <T> SQLiteDatabase.tx(block: SQLiteDatabase.() -> T): T {
+    beginTransaction()
+    try {
+        val r = block()
+        setTransactionSuccessful()
+        return r
+    } finally {
+        endTransaction()
+    }
+}
+
+inline fun <T> Cursor.readAll(row: (Cursor) -> T): List<T> =
+    use {
+        val out = ArrayList<T>(count.coerceAtLeast(0))
+        while (moveToNext()) out += row(this)
+        out
+    }

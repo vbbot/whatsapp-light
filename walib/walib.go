@@ -63,6 +63,9 @@ type Listener interface {
 	// OnRemoteOrientation reports the orientation carried in the peer's video packets:
 	// clockwise quarter turns to draw their frames upright. Authoritative for rendering.
 	OnRemoteOrientation(callID string, quarterTurns int)
+	// OnHistory delivers a batch of past messages, chat names and calls from the main phone
+	// (at link time, or answering RequestOlderMessages) as JSON; see historyBatch.
+	OnHistory(json string)
 }
 
 // VideoRenderer receives the peer's video as H.264 Annex-B access units. Implemented in
@@ -98,9 +101,11 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 
 	store.DeviceProps.Os = proto.String("Android")
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_CHROME.Enum()
+	// Ask for all history when linking, not just recent months. Only read at pairing.
+	store.DeviceProps.RequireFullSync = proto.Bool(true)
 
 	wl := waLog.Zerolog(logger)
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", dbPath)
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=temp_store(2)", dbPath)
 	container, err := sqlstore.New(ctx, "sqlite", dsn, wl.Sub("db"))
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
@@ -122,6 +127,8 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 			c.handleMessage(e)
 		case *events.Receipt:
 			c.handleReceipt(e)
+		case *events.HistorySync:
+			c.handleHistory(e)
 		}
 	})
 	return c, nil
@@ -169,10 +176,21 @@ func (c *Client) MarkRead(chat, sender, ids string) error {
 }
 
 func (c *Client) handleMessage(m *events.Message) {
-	msg := m.Message
-	if msg == nil || m.Info.Chat.Server == types.BroadcastServer {
+	if m.Message == nil || m.Info.Chat.Server == types.BroadcastServer {
 		return
 	}
+	text := messageText(m.Message)
+	if text == "" {
+		return
+	}
+	mediaPath := c.saveMedia(m, true)
+	c.l.OnMessage(m.Info.Chat.String(), m.Info.Sender.String(), m.Info.PushName, m.Info.ID,
+		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath)
+}
+
+// messageText is the body shown for a message: its text, or a placeholder such as "[image]"
+// for media. "" for protocol, reaction and system messages, which aren't shown.
+func messageText(msg *waE2E.Message) string {
 	text := msg.GetConversation()
 	if text == "" {
 		text = msg.GetExtendedTextMessage().GetText()
@@ -189,13 +207,9 @@ func (c *Client) handleMessage(m *events.Message) {
 			text = "[document]"
 		case msg.GetStickerMessage() != nil:
 			text = "[sticker]"
-		default:
-			return // protocol/reaction/system messages
 		}
 	}
-	mediaPath := c.saveMedia(m)
-	c.l.OnMessage(m.Info.Chat.String(), m.Info.Sender.String(), m.Info.PushName, m.Info.ID,
-		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath)
+	return text
 }
 
 // SetMediaDir sets where received photos and thumbnails are stored. Without it, media
@@ -210,9 +224,9 @@ func (c *Client) SetMediaDir(dir string) {
 }
 
 // saveMedia writes the embedded thumbnail of a photo/video message right away (returned path)
-// and, for photos, downloads the full image in the background (reported via OnMediaReady).
-// Videos keep the thumbnail only for now.
-func (c *Client) saveMedia(m *events.Message) string {
+// and, for photos with full set, downloads the full image in the background (reported via
+// OnMediaReady). Videos keep the thumbnail only for now.
+func (c *Client) saveMedia(m *events.Message, full bool) string {
 	c.mu.Lock()
 	dir := c.mediaDir
 	c.mu.Unlock()
@@ -238,7 +252,7 @@ func (c *Client) saveMedia(m *events.Message) string {
 			path = ""
 		}
 	}
-	if img != nil {
+	if img != nil && full {
 		go func() {
 			data, err := c.wa.Download(context.Background(), img)
 			if err != nil {

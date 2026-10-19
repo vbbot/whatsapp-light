@@ -1,9 +1,9 @@
 package vbh.ai.whatsapp
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 
 /**
@@ -35,36 +35,33 @@ data class CallRecord(
                 }
 }
 
-/** Call history recorded while the app is connected; newest first; persisted as JSON. */
+/**
+ * Call history: calls made while the app runs, plus records from history sync; newest first.
+ * Stored in [ChatDb]; [calls] holds the newest 500 for the Calls tab.
+ */
 object CallLog {
     val calls = MutableStateFlow<List<CallRecord>>(emptyList())
-    private var file: File? = null
+    private var db: SQLiteDatabase? = null
 
     /** Calls the user declined, so the end event can tell "declined" from "missed". */
     private val declined = mutableSetOf<String>()
 
     @Synchronized
     fun init(context: Context) {
-        if (file != null) return
-        file = File(context.filesDir, "calls.json")
-        runCatching {
-            val arr = JSONArray(file!!.readText())
-            calls.value =
-                (0 until arr.length()).map {
-                    arr.getJSONObject(it).let { o ->
-                        CallRecord(
-                            o.getString("id"),
-                            o.getString("peer"),
-                            o.getBoolean("incoming"),
-                            o.getLong("startedAt"),
-                            o.optLong("answeredAt"),
-                            o.optLong("endedAt"),
-                            runCatching { CallRecord.Outcome.valueOf(o.getString("outcome")) }.getOrDefault(CallRecord.Outcome.MISSED),
-                            video = o.optBoolean("video", false),
-                        )
-                    }
-                }
-        }
+        if (db != null) return
+        open(ChatDb.get(context).writableDatabase)
+        migrateLegacyFile(context.applicationContext)
+    }
+
+    /** For tests: use an already-open database. */
+    @Synchronized
+    fun open(database: SQLiteDatabase) {
+        db = database
+        reload()
+    }
+
+    private fun reload() {
+        calls.value = db?.rawQuery("SELECT * FROM calls ORDER BY started_at DESC LIMIT 500", null)?.readAll(ChatDb::call).orEmpty()
     }
 
     @Synchronized
@@ -74,10 +71,19 @@ object CallLog {
         incoming: Boolean,
         video: Boolean = false,
     ) {
-        if (calls.value.any { it.id == id }) return
-        calls.value =
-            (listOf(CallRecord(id, normalizeJid(peer), incoming, System.currentTimeMillis(), video = video)) + calls.value).take(500)
-        save()
+        val d = db ?: return
+        val rec = CallRecord(id, normalizeJid(peer), incoming, System.currentTimeMillis(), video = video)
+        d.insertWithOnConflict("calls", null, ChatDb.values(rec), SQLiteDatabase.CONFLICT_IGNORE)
+        reload()
+    }
+
+    /** Records from history sync; calls already known are left alone. */
+    @Synchronized
+    fun addAll(records: List<CallRecord>) {
+        val d = db ?: return
+        if (records.isEmpty()) return
+        d.tx { records.forEach { insertWithOnConflict("calls", null, ChatDb.values(it), SQLiteDatabase.CONFLICT_IGNORE) } }
+        reload()
     }
 
     @Synchronized
@@ -108,26 +114,35 @@ object CallLog {
         id: String,
         f: (CallRecord) -> CallRecord,
     ) {
-        calls.value = calls.value.map { if (it.id == id) f(it) else it }
-        save()
+        val d = db ?: return
+        val cur = d.rawQuery("SELECT * FROM calls WHERE id = ?", arrayOf(id)).readAll(ChatDb::call).firstOrNull() ?: return
+        d.update("calls", ChatDb.values(f(cur)), "id = ?", arrayOf(id))
+        reload()
     }
 
-    private fun save() {
-        val f = file ?: return
-        val arr = JSONArray()
-        calls.value.forEach {
-            arr.put(
-                JSONObject()
-                    .put("id", it.id)
-                    .put("peer", it.peer)
-                    .put("incoming", it.incoming)
-                    .put("startedAt", it.startedAt)
-                    .put("answeredAt", it.answeredAt)
-                    .put("endedAt", it.endedAt)
-                    .put("outcome", it.outcome.name)
-                    .put("video", it.video),
+    /** One-time import of calls.json (renamed to calls.json.migrated afterwards). */
+    private fun migrateLegacyFile(context: Context) {
+        val f = File(context.filesDir, "calls.json")
+        if (!f.exists()) return
+        val arr = runCatching { JSONArray(f.readText()) }.getOrNull()
+        if (arr != null) {
+            addAll(
+                (0 until arr.length()).map { i ->
+                    arr.getJSONObject(i).let { o ->
+                        CallRecord(
+                            o.getString("id"),
+                            o.getString("peer"),
+                            o.getBoolean("incoming"),
+                            o.getLong("startedAt"),
+                            o.optLong("answeredAt"),
+                            o.optLong("endedAt"),
+                            runCatching { CallRecord.Outcome.valueOf(o.getString("outcome")) }.getOrDefault(CallRecord.Outcome.MISSED),
+                            video = o.optBoolean("video", false),
+                        )
+                    }
+                },
             )
         }
-        runCatching { f.writeText(arr.toString()) }
+        f.renameTo(File(context.filesDir, "calls.json.migrated"))
     }
 }
