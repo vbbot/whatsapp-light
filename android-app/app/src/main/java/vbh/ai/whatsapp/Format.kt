@@ -48,6 +48,9 @@ fun formatMessageTime(ts: Long): String {
     return if (tag == null) time else "$tag $time"
 }
 
+/** The local date of a timestamp: thread groups break when the day changes. */
+fun dayOf(ts: Long): LocalDate = Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate()
+
 /** "00:23" / "1:02:03" call duration. */
 fun formatDuration(ms: Long): String {
     val s = (ms / 1000).coerceAtLeast(0)
