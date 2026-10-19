@@ -263,10 +263,6 @@ object WaCore : Listener {
     fun startCamera(preview: android.view.Surface?) {
         WaState.call.value ?: return
         lastPreview = preview
-        WaState.log(
-            "experiments for this call: ${if (Experiments.flags.isEmpty()) "none" else Experiments.flags.sorted().joinToString(",")}",
-        )
-        setMuted(Experiments.noAudio)
         startCapture(preview)
     }
 
@@ -289,10 +285,6 @@ object WaCore : Listener {
         sentFailed = 0
         lastSendError = null
         video.startCamera(preview) { au, durationUs ->
-            if (Demo.loopback) {
-                video.frame(au)
-                return@startCamera
-            }
             // Fails until the call's video media is up; meowcaller then waits for a keyframe.
             try {
                 cl?.sendVideo(c.id, au, durationUs)
@@ -322,7 +314,7 @@ object WaCore : Listener {
      */
     private fun sendOrientation(callID: String) {
         val cl = client ?: return
-        val cvo = if (Experiments.cvo0) 0 else (4 - video.sensorQuarterTurns) % 4
+        val cvo = (4 - video.sensorQuarterTurns) % 4
         thread(name = "wa-orient") {
             try {
                 cl.setVideoOrientation(callID, cvo.toLong())

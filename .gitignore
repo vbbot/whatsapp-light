@@ -7,8 +7,6 @@
 # Logs and local diagnostics
 *.log
 
-# Go binaries
-
 # gomobile output (rebuild with the steps in README.md)
 /android-libs/
 /android-app/app/libs/*.aar

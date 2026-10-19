@@ -294,10 +294,10 @@ class VideoEngine(
         fun format(opts: List<String>) =
             MediaFormat.createVideoFormat(MIME, size.width, size.height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-                setInteger(MediaFormat.KEY_BIT_RATE, if (Experiments.br500) 500_000 else BITRATE)
+                setInteger(MediaFormat.KEY_BIT_RATE, BITRATE)
                 setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
                 // Keyframes every 2 s; the peer also asks for one (PLI) whenever it needs it.
-                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, if (Experiments.gop1) 1 else 2)
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
                 if ("lowlatency" in opts) {
                     setInteger(MediaFormat.KEY_LATENCY, 1)
                     setInteger("vendor.qti-ext-enc-low-latency.enable", 1)
@@ -314,7 +314,7 @@ class VideoEngine(
             try {
                 codec.configure(format(optional), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                 WaState.log(
-                    "video: encoder ${codec.name} ${(if (Experiments.br500) 500_000 else BITRATE) / 1000} kbps, keyframe every ${if (Experiments.gop1) 1 else 2} s, options $optional",
+                    "video: encoder ${codec.name} ${BITRATE / 1000} kbps, options $optional",
                 )
                 break
             } catch (e: Exception) {
@@ -379,7 +379,7 @@ class VideoEngine(
             // Duration from the camera's own timestamps: a fixed 66 ms per frame drifts from the
             // real frame rate and the receiver's buffer (and delay) grows over the call.
             val duration =
-                if (Experiments.fixedDuration || lastPtsUs < 0 || pts <= lastPtsUs) {
+                if (lastPtsUs < 0 || pts <= lastPtsUs) {
                     1_000_000L / FPS
                 } else {
                     (pts - lastPtsUs).coerceAtMost(500_000L)

@@ -27,7 +27,6 @@ import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LocalHapticsEnabled
 
 class MainActivity : ComponentActivity() {
-    private var demo: String? = null
     private var pendingCamera: ((Boolean) -> Unit)? = null
     private val cameraLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -45,8 +44,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppSettings.init(this)
         WaCore.prepare(this)
-        Experiments.load(this)
-        Experiments.applyIntent(this, intent)
         MediaPicker.request = { block ->
             pendingMedia = block
             MediaPicker.rescanCameraFolders(this) {
@@ -61,19 +58,12 @@ class MainActivity : ComponentActivity() {
                 cameraLauncher.launch(Manifest.permission.CAMERA)
             }
         }
-        demo = Demo.requested(this, intent)
-        demo?.let { Demo.apply(this, it) }
         setContent {
             // The LP3 has no day mode: pin to the dark palette.
             LightTheme(colors = LightThemeColors.Dark) {
                 CompositionLocalProvider(LocalHapticsEnabled provides true) { Root() }
             }
         }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        Experiments.applyIntent(this, intent)
     }
 
     private fun startCore() {
@@ -92,7 +82,7 @@ class MainActivity : ComponentActivity() {
             rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
                 if (r[Manifest.permission.RECORD_AUDIO] == true) startCore() else denied = true
             }
-        LaunchedEffect(Unit) { if (demo == null) launcher.launch(perms) }
+        LaunchedEffect(Unit) { launcher.launch(perms) }
 
         val qr by WaState.qr.collectAsState()
         val call by WaState.call.collectAsState()
