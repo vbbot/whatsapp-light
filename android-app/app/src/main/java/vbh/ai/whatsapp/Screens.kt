@@ -46,6 +46,7 @@ import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightBottomBar
 import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightLazyScrollView
+import com.thelightphone.sdk.ui.LightScrollBarPosition
 import com.thelightphone.sdk.ui.LightScrollView
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextInputEditor
@@ -62,6 +63,9 @@ import kotlinx.coroutines.flow.conflate
 import android.graphics.Color as AColor
 
 internal const val LOADING_TEXT = "loading…"
+
+/** End padding of list rows: 0.5 gu of space plus the 2 gu track of the scrollbar drawn over the list. */
+private const val ROW_END_GU = 2.5f
 
 // ---------------------------------------------------------------- shared pieces
 
@@ -226,7 +230,12 @@ private fun ChatList() {
                         },
                     )
                 }
-                LightLazyScrollView(modifier = Modifier.weight(1f), uniformItemHeightGridUnits = 4.5f, listState = listState) {
+                LightLazyScrollView(
+                    modifier = Modifier.weight(1f),
+                    scrollBarPosition = LightScrollBarPosition.Inside,
+                    uniformItemHeightGridUnits = 4.5f,
+                    listState = listState,
+                ) {
                     items(rows, key = { it.first.chat }) { (summary, name) ->
                         ChatRow(
                             name = name,
@@ -264,8 +273,9 @@ private fun ChatRow(
         Modifier
             .fillMaxWidth()
             .lightClickable(onClickLabel = "Open chat with $name", onClick = onOpen)
-            // 12dp vertical padding fits six rows on the panel (same as Chats).
-            .padding(start = 0.5f.gridUnitsAsDp(), end = 0.5f.gridUnitsAsDp(), top = 12.dp, bottom = 12.dp),
+            // 12dp vertical padding fits six rows on the panel (same as Chats). The list's scrollbar
+            // is drawn over the rows, so the end leaves 0.5 gu plus its 2 gu track, as in Chats.
+            .padding(start = 0.5f.gridUnitsAsDp(), end = ROW_END_GU.gridUnitsAsDp(), top = 12.dp, bottom = 12.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             // The unread marker is a large asterisk in a fixed 1 gu slot so names never shift.
@@ -297,7 +307,7 @@ private fun CallList() {
         StatusText("No calls yet.")
         return
     }
-    LightLazyScrollView(uniformItemHeightGridUnits = 6f, listState = listState) {
+    LightLazyScrollView(scrollBarPosition = LightScrollBarPosition.Inside, uniformItemHeightGridUnits = 6f, listState = listState) {
         items(calls, key = { it.id }) { c ->
             val name = titles[c.peer] ?: MessageStore.fallbackTitle(c.peer, phones[c.peer])
             CallRow(
@@ -326,7 +336,7 @@ private fun CallRow(
         Modifier
             .fillMaxWidth()
             .lightClickable(onClickLabel = label, onClick = onClick)
-            .padding(start = 0.5f.gridUnitsAsDp(), end = 0.5f.gridUnitsAsDp(), top = 10.dp, bottom = 10.dp),
+            .padding(start = 0.5f.gridUnitsAsDp(), end = ROW_END_GU.gridUnitsAsDp(), top = 10.dp, bottom = 10.dp),
     ) {
         // Marker and time ride on the name line, like the chat list; the summary sits under the name.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -556,7 +566,11 @@ fun ContactsScreen(purpose: Purpose) {
                 Box(Modifier.weight(1f)) {
                     when {
                         entries.isNotEmpty() -> {
-                            LightLazyScrollView(uniformItemHeightGridUnits = 4.5f, listState = listState) {
+                            LightLazyScrollView(
+                                scrollBarPosition = LightScrollBarPosition.Inside,
+                                uniformItemHeightGridUnits = 4.5f,
+                                listState = listState,
+                            ) {
                                 items(entries, key = { it.chat }) { c ->
                                     ContactRow(name = c.name, subtitle = null) {
                                         when (purpose) {
@@ -599,7 +613,7 @@ private fun ContactRow(
         Modifier
             .fillMaxWidth()
             .lightClickable(onClickLabel = name, onClick = onClick)
-            .padding(horizontal = 2f.gridUnitsAsDp(), vertical = 12.dp),
+            .padding(start = 2f.gridUnitsAsDp(), end = ROW_END_GU.gridUnitsAsDp(), top = 12.dp, bottom = 12.dp),
     ) {
         LightText(text = name, variant = LightTextVariant.Heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
         subtitle?.let { LightText(text = it, variant = LightTextVariant.Detail, lighten = true) }
