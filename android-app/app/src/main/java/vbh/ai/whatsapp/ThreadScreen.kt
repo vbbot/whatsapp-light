@@ -125,9 +125,11 @@ fun ThreadScreen(chat: String) {
                 if (msgs.isEmpty()) {
                     StatusText("No messages yet.")
                 } else {
-                    Row(Modifier.fillMaxSize()) {
+                    // The scrollbar is drawn over the list, as in Chats; sent rows keep clear of it with
+                    // their wider end padding (see MessageRow).
+                    Box(Modifier.fillMaxSize()) {
                         // Only the rows on screen are built; they vary in height.
-                        LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.weight(1f)) {
+                        LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize()) {
                             item(key = "bottom") { Box(Modifier.height(1f.gridUnitsAsDp())) }
                             items(msgs.size, key = { msgs[msgs.size - 1 - it].id }) { j ->
                                 val i = msgs.size - 1 - j
@@ -143,7 +145,7 @@ fun ThreadScreen(chat: String) {
                             }
                             if (waitingForPhone) item(key = "loading") { Banner("Loading earlier messages…") }
                         }
-                        ThreadScrollBar(listState)
+                        ThreadScrollBar(listState, Modifier.align(Alignment.CenterEnd))
                     }
                 }
             }
@@ -247,7 +249,10 @@ private fun loadOlderAtTop(
  * height, so the content height is estimated from the rows on screen.
  */
 @Composable
-private fun ThreadScrollBar(listState: androidx.compose.foundation.lazy.LazyListState) {
+private fun ThreadScrollBar(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier,
+) {
     val metrics by remember(listState) {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -264,7 +269,7 @@ private fun ThreadScrollBar(listState: androidx.compose.foundation.lazy.LazyList
         }
     }
     val barColor = LightThemeTokens.colors.content
-    Box(Modifier.width(2f.gridUnitsAsDp()).fillMaxHeight()) {
+    Box(modifier.width(2f.gridUnitsAsDp()).fillMaxHeight()) {
         val (thumb, top) = metrics ?: return@Box
         BoxWithConstraints(Modifier.fillMaxSize()) {
             Box(
@@ -386,8 +391,8 @@ private fun TimeTag(text: String) {
 
 /**
  * Message text in `Paragraph`, as in Chats. Ours sits at the right in a block as wide as its
- * widest line (capped at the message column), with the lines themselves left-aligned, so a short
- * reply hugs the edge and a long one reads normally. Theirs is plain left-aligned text.
+ * widest line once wrapped to the message column, with the lines themselves left-aligned, so its
+ * right edge is the text's own. Theirs is plain left-aligned text.
  */
 @Composable
 private fun MessageText(
@@ -404,9 +409,11 @@ private fun MessageText(
     val style = paragraphStyle()
     val width =
         remember(text, columnWidthPx, style, density) {
-            // Measured without a width cap: capping would break before a long word (a link) and
-            // size the block to the shorter line in front of it.
-            val layout = measurer.measure(AnnotatedString(text), style, constraints = Constraints())
+            // Wrapped at the column width, then sized to the widest wrapped line, so the block's
+            // right edge is the text's: a wrapped message ends flush right instead of leaving the
+            // slack of its line breaks. Laying it out again at that width breaks it the same way,
+            // since every line already fits.
+            val layout = measurer.measure(AnnotatedString(text), style, constraints = Constraints(maxWidth = columnWidthPx))
             val widest = (0 until layout.lineCount).maxOfOrNull { layout.getLineRight(it) } ?: 0f
             // Rounded up: a sub-pixel shortfall would push the last word onto a new line.
             with(density) { minOf(ceil(widest), columnWidthPx.toFloat()).toDp() }
