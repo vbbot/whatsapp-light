@@ -33,6 +33,11 @@ class MainActivity : ComponentActivity() {
         pendingCamera?.invoke(granted)
         pendingCamera = null
     }
+    private var pendingMedia: ((android.net.Uri?) -> Unit)? = null
+    private val mediaLauncher = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        pendingMedia?.invoke(uri)
+        pendingMedia = null
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +45,10 @@ class MainActivity : ComponentActivity() {
         WaCore.prepare(this)
         Experiments.load(this)
         Experiments.applyIntent(this, intent)
+        MediaPicker.request = { block ->
+            pendingMedia = block
+            mediaLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+        }
         CameraGate.request = { block ->
             if (checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) block(true)
             else { pendingCamera = block; cameraLauncher.launch(Manifest.permission.CAMERA) }
@@ -101,6 +110,8 @@ class MainActivity : ComponentActivity() {
                     is Screen.Contacts -> ContactsScreen(s.purpose)
                     is Screen.Number -> NumberScreen(s.purpose)
                     Screen.Settings -> SettingsScreen()
+                    is Screen.CallType -> CallTypeScreen(s.chat)
+                    is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
                 }
             }
         }

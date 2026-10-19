@@ -334,6 +334,75 @@ func (c *Client) CanonicalChat(jid string) string {
 	return j.String()
 }
 
+// SendMedia uploads a photo or video and sends it to chat. kind is "image" or "video";
+// thumbnail is an optional small JPEG shown before the recipient downloads the file.
+// Returns the message ID.
+func (c *Client) SendMedia(chat, kind string, data []byte, mimetype, caption string, width, height, seconds int, thumbnail []byte) (string, error) {
+	jid, err := parseChat(chat)
+	if err != nil {
+		return "", err
+	}
+	ctx := context.Background()
+	// gomobile reuses byte slices after the call returns; the upload reads them synchronously,
+	// but copy anyway so nothing outlives the call.
+	data = append([]byte(nil), data...)
+	thumb := append([]byte(nil), thumbnail...)
+	if len(thumb) == 0 {
+		thumb = nil
+	}
+	var msg *waE2E.Message
+	switch kind {
+	case "image":
+		up, err := c.wa.Upload(ctx, data, whatsmeow.MediaImage)
+		if err != nil {
+			return "", fmt.Errorf("upload: %w", err)
+		}
+		msg = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath),
+			MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+			FileLength: proto.Uint64(up.FileLength), Mimetype: proto.String(mimetype),
+			Width: proto.Uint32(uint32(width)), Height: proto.Uint32(uint32(height)),
+			MediaKeyTimestamp: proto.Int64(time.Now().Unix()), JPEGThumbnail: thumb,
+			Caption: optString(caption),
+		}}
+	case "video":
+		up, err := c.wa.Upload(ctx, data, whatsmeow.MediaVideo)
+		if err != nil {
+			return "", fmt.Errorf("upload: %w", err)
+		}
+		msg = &waE2E.Message{VideoMessage: &waE2E.VideoMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath),
+			MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+			FileLength: proto.Uint64(up.FileLength), Mimetype: proto.String(mimetype),
+			Width: proto.Uint32(uint32(width)), Height: proto.Uint32(uint32(height)),
+			Seconds:           proto.Uint32(uint32(seconds)),
+			MediaKeyTimestamp: proto.Int64(time.Now().Unix()), JPEGThumbnail: thumb,
+			Caption: optString(caption),
+		}}
+	default:
+		return "", fmt.Errorf("unsupported media kind %q", kind)
+	}
+	resp, err := c.wa.SendMessage(ctx, jid, msg)
+	if err != nil {
+		return "", err
+	}
+	return resp.ID, nil
+}
+
+func optString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return proto.String(s)
+}
+
+func parseChat(chat string) (types.JID, error) {
+	if strings.Contains(chat, "@") {
+		return types.ParseJID(chat)
+	}
+	return types.NewJID(strings.TrimPrefix(chat, "+"), types.DefaultUserServer), nil
+}
+
 func (c *Client) IsPaired() bool { return c.wa.Store.ID != nil }
 
 // Connect logs in (emitting OnQR codes if unpaired) and blocks until connected.

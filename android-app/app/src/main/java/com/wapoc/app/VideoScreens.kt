@@ -98,8 +98,14 @@ fun VideoCallScreen(call: CallUi, title: String) {
                 else bar(LightIcons.SPEAKER_MUTED, "Switch to speaker") { WaCore.setSpeaker(true) },
                 if (call.localVideo) bar(LightIcons.CAMERA, "Turn camera off") { WaCore.stopVideo() }
                 else bar(LightIcons.CAMERA, "Turn camera on") { CameraGate.withCamera { ok -> if (ok) WaCore.startVideo() } },
+                // Front / rear switch, only while our camera is on (5 icons is the bar's limit).
+                if (call.localVideo) {
+                    bar(LightIcons.ROTATE, if (call.frontCamera) "Switch to rear camera" else "Switch to front camera") { WaCore.switchCamera() }
+                } else {
+                    null
+                },
                 bar(LightIcons.DENY, "End call") { WaCore.hangup() },
-            ),
+            ).filterNotNull(),
         )
     }
 }

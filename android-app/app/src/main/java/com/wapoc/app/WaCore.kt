@@ -210,11 +210,29 @@ object WaCore : Listener {
 
     /** Starts the camera and encoder for the current call, drawing a preview into [preview]. */
     fun startCamera(preview: android.view.Surface?) {
+        WaState.call.value ?: return
+        lastPreview = preview
+        WaState.log("experiments for this call: ${if (Experiments.flags.isEmpty()) "none" else Experiments.flags.sorted().joinToString(",")}")
+        setMuted(Experiments.noAudio)
+        startCapture(preview)
+    }
+
+    /** The preview surface of the current video call, kept so a camera switch can reuse it. */
+    private var lastPreview: android.view.Surface? = null
+
+    /** Switches between front and rear camera mid-call; mute and other call state are untouched. */
+    fun switchCamera() {
+        val cur = WaState.call.value ?: return
+        if (!cur.localVideo) return
+        video.useFrontCamera = !video.useFrontCamera
+        WaState.call.value = cur.copy(frontCamera = video.useFrontCamera)
+        startCapture(lastPreview)
+    }
+
+    private fun startCapture(preview: android.view.Surface?) {
         val c = WaState.call.value ?: return
         val cl = client
         sentOk = 0; sentFailed = 0; lastSendError = null
-        WaState.log("experiments for this call: ${if (Experiments.flags.isEmpty()) "none" else Experiments.flags.sorted().joinToString(",")}")
-        setMuted(Experiments.noAudio)
         video.startCamera(preview) { au, durationUs ->
             if (Demo.loopback) { video.frame(au); return@startCamera }
             // Fails until the call's video media is up; meowcaller then waits for a keyframe.
@@ -230,7 +248,10 @@ object WaCore : Listener {
         sendOrientation(c.id)
     }
 
-    fun stopCamera() = video.stopCamera()
+    fun stopCamera() {
+        lastPreview = null
+        video.stopCamera()
+    }
 
     /**
      * Tells meowcaller the orientation to stamp on every outgoing video packet. WhatsApp
@@ -282,6 +303,28 @@ object WaCore : Listener {
             val id = client!!.sendText(chat, body)
             MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
             MessageStore.add(Msg(id, chat, "me", "", body, System.currentTimeMillis(), true, chat.endsWith("@g.us"), status = Status.SENT))
+        } catch (e: Exception) {
+            MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
+            throw e
+        }
+    }
+
+    /**
+     * Sends a picked photo or video: shows it at once as a pending "[image]" / "[video]" row,
+     * then uploads and swaps in the real message (or removes the row and shows the error).
+     */
+    fun sendMedia(chat: String, uri: android.net.Uri) = bg {
+        val tmp = "pending-" + System.nanoTime()
+        val isGroup = chat.endsWith("@g.us")
+        try {
+            val media = MediaSend.prepare(app, uri)
+            val label = if (media.kind == "image") "[image]" else "[video]"
+            MessageStore.add(Msg(tmp, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, pending = true))
+            val id = client!!.sendMedia(chat, media.kind, media.data, media.mimetype, "",
+                media.width.toLong(), media.height.toLong(), media.seconds.toLong(), media.thumbnail)
+            MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
+            MessageStore.add(Msg(id, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, status = Status.SENT))
+            WaState.log("media sent: ${media.kind} ${media.data.size / 1024} KB ${media.width}x${media.height}")
         } catch (e: Exception) {
             MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
             throw e

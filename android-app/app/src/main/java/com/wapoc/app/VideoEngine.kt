@@ -74,7 +74,10 @@ class VideoEngine(private val context: Context) : VideoRenderer {
     var captureSize = Size(WIDTH, HEIGHT)
         private set
 
-    /** Quarter turns clockwise to draw our raw frames upright (front camera, portrait). */
+    /** Which camera the next [startCamera] opens. Front by default, as in WhatsApp. */
+    @Volatile var useFrontCamera = true
+
+    /** Quarter turns clockwise to draw our raw frames upright (current camera, portrait). */
     var sensorQuarterTurns = 3
         private set
 
@@ -85,8 +88,9 @@ class VideoEngine(private val context: Context) : VideoRenderer {
         this.send = send
         lastPtsUs = -1L
         val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val wanted = if (useFrontCamera) CameraCharacteristics.LENS_FACING_FRONT else CameraCharacteristics.LENS_FACING_BACK
         val id = cm.cameraIdList.firstOrNull {
-            cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+            cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == wanted
         } ?: cm.cameraIdList.firstOrNull() ?: run { WaState.log("video: no camera"); return }
         val chars = cm.getCameraCharacteristics(id)
         sensorQuarterTurns = ((chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 270) / 90) % 4
@@ -140,7 +144,7 @@ class VideoEngine(private val context: Context) : VideoRenderer {
                 device.close()
             }
         }, handler)
-        WaState.log("video: camera ${captureSize.width}x${captureSize.height} @ $fps, rotate ${sensorQuarterTurns * 90}")
+        WaState.log("video: ${if (useFrontCamera) "front" else "rear"} camera ${captureSize.width}x${captureSize.height} @ $fps, rotate ${sensorQuarterTurns * 90}")
     }
 
     /** Copies one camera frame into the encoder; skipped if the encoder has no free input. */

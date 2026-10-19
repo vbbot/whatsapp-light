@@ -23,6 +23,8 @@ data class CallUi(
     val upgradeRequested: Boolean = false,
     /** Rotate their frames by this many quarter turns clockwise to show them upright. */
     val remoteOrientation: Int = 0,
+    /** Our video comes from the front camera (false: rear). */
+    val frontCamera: Boolean = true,
 ) {
     val phaseLabel: String
         get() = when (phase) {

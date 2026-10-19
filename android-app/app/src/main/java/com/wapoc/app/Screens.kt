@@ -359,13 +359,15 @@ fun ThreadScreen(chat: String) {
         }
         LightBottomBar(
             modifier = Modifier.navigationBarsPadding(),
-            items = buildList {
-                if (!isGroup) add(icon(LightIcons.CALL, "Call $title") { WaCore.call(chat) })
-                if (!isGroup) add(icon(LightIcons.CAMERA, "Video call $title") {
-                    CameraGate.withCamera { ok -> WaCore.call(chat, withVideo = ok) }
-                })
-                add(icon(LightIcons.COMPOSE_MESSAGE, "Write a message to $title") { Nav.push(Screen.Composer(chat)) })
-            },
+            // Call (choose voice or video next) | attach a photo or video | write.
+            // Groups can't be called here; the slot stays empty so the others keep their places.
+            items = listOf(
+                if (isGroup) null else icon(LightIcons.CALL, "Call $title") { Nav.push(Screen.CallType(chat)) },
+                icon(LightIcons.ADD, "Send a photo or video to $title") {
+                    MediaPicker.pick { uri -> if (uri != null) WaCore.sendMedia(chat, uri) }
+                },
+                icon(LightIcons.COMPOSE_MESSAGE, "Write a message to $title") { Nav.push(Screen.Composer(chat)) },
+            ),
         )
     }
 }
@@ -572,6 +574,82 @@ private fun ContactRow(name: String, subtitle: String?, onClick: () -> Unit) {
     ) {
         LightText(text = name, variant = LightTextVariant.Heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
         subtitle?.let { LightText(text = it, variant = LightTextVariant.Detail, lighten = true) }
+    }
+}
+
+// ---------------------------------------------------------------- call type / confirm
+
+/** Full-screen choice between a voice and a video call, opened from a thread's call button. */
+@Composable
+fun CallTypeScreen(chat: String) {
+    val all by MessageStore.messages.collectAsState()
+    val names by MessageStore.names.collectAsState()
+    val title = remember(all, chat, names) { MessageStore.title(chat, all) }
+    ScreenColumn {
+        LightTopBar(
+            leftButton = backButton(title) { Nav.pop() },
+            center = LightTopBarCenter.Text("Call"),
+        )
+        Column(Modifier.weight(1f).fillMaxWidth()) {
+            ContactRow(name = "Voice call", subtitle = "audio only") { Nav.push(Screen.CallConfirm(chat, video = false)) }
+            ContactRow(name = "Video call", subtitle = "your camera turns on") { Nav.push(Screen.CallConfirm(chat, video = true)) }
+        }
+        Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
+    }
+}
+
+/** Confirms before dialling (same grammar as the Chats confirm panel: question, then CALL). */
+@Composable
+fun CallConfirmScreen(chat: String, video: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val all by MessageStore.messages.collectAsState()
+    val names by MessageStore.names.collectAsState()
+    val title = remember(all, chat, names) { MessageStore.title(chat, all) }
+    fun dial() {
+        // Back to the thread first, so ending the call returns there, not to this screen.
+        Nav.pop()
+        Nav.pop()
+        WaCore.call(chat, withVideo = video)
+    }
+    ScreenColumn {
+        LightTopBar(leftButton = backButton("call options") { Nav.pop() })
+        Box(
+            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 2f.gridUnitsAsDp()).padding(bottom = 4f.gridUnitsAsDp()),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                LightText(
+                    text = if (video) "Video call $title?" else "Call $title?",
+                    variant = LightTextVariant.Subheading,
+                    align = TextAlign.Center,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                LightText(
+                    text = if (video) "your camera turns on" else "voice only",
+                    variant = LightTextVariant.Detail,
+                    lighten = true,
+                    align = TextAlign.Center,
+                    modifier = Modifier.padding(top = 1f.gridUnitsAsDp()),
+                )
+            }
+        }
+        LightBottomBar(
+            modifier = Modifier.navigationBarsPadding(),
+            items = listOf(
+                LightBarButton.Text(
+                    text = "CALL",
+                    contentDescription = if (video) "Start video call with $title" else "Start voice call with $title",
+                    onClick = {
+                        if (!video) dial()
+                        else CameraGate.withCamera { ok ->
+                            if (ok) dial()
+                            else android.widget.Toast.makeText(context, "Camera access is needed for video calls", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                ),
+            ),
+        )
     }
 }
 

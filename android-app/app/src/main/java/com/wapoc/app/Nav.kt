@@ -15,6 +15,10 @@ sealed interface Screen {
     data class Contacts(val purpose: Purpose) : Screen
     data class Number(val purpose: Purpose) : Screen
     data object Settings : Screen
+    /** Choose voice or video before calling [chat]. */
+    data class CallType(val chat: String) : Screen
+    /** Confirm placing a voice or video call to [chat]. */
+    data class CallConfirm(val chat: String, val video: Boolean) : Screen
 }
 
 /** Minimal back stack. Keeps [MessageStore.openChat] in sync so open threads stay quiet. */

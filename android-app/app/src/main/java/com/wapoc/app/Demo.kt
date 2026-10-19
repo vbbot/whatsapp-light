@@ -66,6 +66,8 @@ object Demo {
         WaState.call.value = null
         when (name) {
             "thread" -> Nav.push(Screen.Thread("333@s.whatsapp.net"))
+            "calltype" -> { Nav.push(Screen.Thread("333@s.whatsapp.net")); Nav.push(Screen.CallType("333@s.whatsapp.net")) }
+            "callconfirm" -> { Nav.push(Screen.Thread("333@s.whatsapp.net")); Nav.push(Screen.CallType("333@s.whatsapp.net")); Nav.push(Screen.CallConfirm("333@s.whatsapp.net", video = true)) }
             "composer" -> { Nav.push(Screen.Thread("333@s.whatsapp.net")); Nav.push(Screen.Composer("333@s.whatsapp.net")) }
             "newchat" -> Nav.push(Screen.Contacts(Purpose.MESSAGE))
             "newcall" -> { Nav.tab.value = Tab.CALLS; Nav.push(Screen.Contacts(Purpose.CALL)) }
