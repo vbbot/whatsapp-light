@@ -13,7 +13,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="WA PoC"
+        android:label="WhatsApp"
         android:theme="@style/Theme.WaPoc">
         <activity
             android:name=".MainActivity"

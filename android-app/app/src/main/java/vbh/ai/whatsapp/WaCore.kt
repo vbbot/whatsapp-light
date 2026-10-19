@@ -73,7 +73,7 @@ object WaCore : Listener {
     fun serviceNotification(): Notification =
         NotificationCompat.Builder(app, CH_SERVICE)
             .setSmallIcon(android.R.drawable.stat_sys_phone_call)
-            .setContentTitle("WA PoC")
+            .setContentTitle("WhatsApp")
             .setContentText(WaState.status.value)
             .setOngoing(true)
             .setContentIntent(openApp())
