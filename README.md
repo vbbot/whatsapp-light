@@ -20,7 +20,7 @@ the Android SDK + NDK, JDK 21, and the Light SDK checked out at `../../light-sdk
     # 1. Go wrapper -> AAR
     cd walib
     ANDROID_HOME=~/Library/Android/sdk ANDROID_NDK_HOME=~/Library/Android/sdk/ndk/25.1.8937393 \
-      gomobile bind -target=android/arm64 -androidapi 26 -javapkg com.wapoc -o ../android-libs/walib.aar .
+      gomobile bind -target=android/arm64 -androidapi 26 -javapkg vbh.ai.whatsapp -o ../android-libs/walib.aar .
     mkdir -p ../android-app/app/libs && cp ../android-libs/walib.aar ../android-app/app/libs/
 
     # 2. App

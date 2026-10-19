@@ -1,4 +1,4 @@
-package com.wapoc.app
+package vbh.ai.whatsapp
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -9,8 +9,8 @@ import android.content.Intent
 import android.media.Ringtone
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
-import com.wapoc.walib.Client
-import com.wapoc.walib.Listener
+import vbh.ai.whatsapp.walib.Client
+import vbh.ai.whatsapp.walib.Listener
 import java.io.File
 import kotlin.concurrent.thread
 

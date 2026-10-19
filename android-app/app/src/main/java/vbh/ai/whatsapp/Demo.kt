@@ -1,11 +1,11 @@
-package com.wapoc.app
+package vbh.ai.whatsapp
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.Intent
 
 /**
- * Debug-only: `adb shell am start -n com.wapoc.app/.MainActivity --es demo <name>` seeds sample
+ * Debug-only: `adb shell am start -n vbh.ai.whatsapp/.MainActivity --es demo <name>` seeds sample
  * data and fake call states so each screen can be screenshotted without a paired account.
  * Ignored entirely in non-debuggable builds.
  */

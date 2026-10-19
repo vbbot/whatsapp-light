@@ -1,4 +1,4 @@
-package com.wapoc.app
+package vbh.ai.whatsapp
 
 import java.time.Instant
 import java.time.LocalDate

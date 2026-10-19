@@ -1,4 +1,4 @@
-package com.wapoc.app
+package vbh.ai.whatsapp
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -19,7 +19,7 @@ import android.os.HandlerThread
 import android.util.Range
 import android.util.Size
 import android.view.Surface
-import com.wapoc.walib.VideoRenderer
+import vbh.ai.whatsapp.walib.VideoRenderer
 
 /**
  * Video for calls. meowcaller only carries H.264, so this does the rest:

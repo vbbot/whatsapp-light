@@ -1,4 +1,4 @@
-package com.wapoc.app
+package vbh.ai.whatsapp
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -11,8 +11,8 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
-import com.wapoc.walib.Client
-import com.wapoc.walib.Speaker
+import vbh.ai.whatsapp.walib.Client
+import vbh.ai.whatsapp.walib.Speaker
 
 /**
  * Bridges Android audio to walib: 16 kHz mono s16le in both directions.

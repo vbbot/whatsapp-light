@@ -1,4 +1,4 @@
-package com.wapoc.app
+package vbh.ai.whatsapp
 
 import android.graphics.SurfaceTexture
 import android.view.Surface

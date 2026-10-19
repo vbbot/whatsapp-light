@@ -1,4 +1,4 @@
-package com.wapoc.app
+package vbh.ai.whatsapp
 
 import kotlinx.coroutines.flow.MutableStateFlow
 

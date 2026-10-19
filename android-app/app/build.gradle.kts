@@ -7,10 +7,10 @@ plugins {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 android {
-    namespace = "com.wapoc.app"
+    namespace = "vbh.ai.whatsapp"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.wapoc.app"
+        applicationId = "vbh.ai.whatsapp"
         minSdk = 34
         targetSdk = 34
         versionCode = 1

@@ -1,4 +1,4 @@
-package com.wapoc.app
+package vbh.ai.whatsapp
 
 import android.content.Context
 import android.content.Intent
@@ -6,8 +6,8 @@ import android.content.pm.ApplicationInfo
 
 /**
  * Debug-only switches for A/B testing video calls without reinstalling:
- *   adb shell am start -n com.wapoc.app/.MainActivity --es exp "cvo0,fixed,gop1,br500,noaudio"
- *   adb shell am start -n com.wapoc.app/.MainActivity --es exp none
+ *   adb shell am start -n vbh.ai.whatsapp/.MainActivity --es exp "cvo0,fixed,gop1,br500,noaudio"
+ *   adb shell am start -n vbh.ai.whatsapp/.MainActivity --es exp none
  * Each flag makes one aspect match meowcaller's browser console. Read when a call's camera
  * starts; logged so the call log says which variant ran. Ignored in non-debuggable builds.
  */

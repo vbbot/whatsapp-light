@@ -1,4 +1,4 @@
-package com.wapoc.app
+package vbh.ai.whatsapp
 
 /** Asks for the camera permission on demand; set up by [MainActivity]. */
 object CameraGate {
