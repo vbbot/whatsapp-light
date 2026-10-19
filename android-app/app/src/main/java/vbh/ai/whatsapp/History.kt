@@ -1,7 +1,10 @@
 package vbh.ai.whatsapp
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.concurrent.thread
 
 /** One batch of history from the main phone (see walib's historyBatch). */
 data class HistoryBatch(
@@ -15,8 +18,48 @@ data class HistoryBatch(
     val calls: List<CallRecord>,
 )
 
-/** Imports history sync: past messages, chat names and calls. Never notifies. */
+/**
+ * History sync: the past messages, chat names and calls the main phone sends after linking (and
+ * older messages asked for on demand). Imported without notifications. [syncing] tracks the
+ * transfer after a link so the UI can say it's under way.
+ */
 object History {
+    /** After linking: messages received so far, until the full history is in; else null. */
+    val syncing = MutableStateFlow<Int?>(null)
+
+    /** The first batch can take a few minutes after linking; between batches it's seconds. */
+    private const val FIRST_BATCH_WAIT_MS = 3 * 60_000L
+    private const val NEXT_BATCH_WAIT_MS = 60_000L
+
+    @Volatile private var lastBatchAt = 0L
+
+    /** A device was just linked: the phone will now send its history. */
+    fun linked() {
+        lastBatchAt = System.currentTimeMillis()
+        syncing.value = 0
+        // Ends the sync if the phone stops sending before the full history (e.g. it declined it).
+        thread(name = "wa-history-watch", isDaemon = true) {
+            while (true) {
+                Thread.sleep(5_000)
+                val count = syncing.value ?: break
+                val wait = if (count == 0) FIRST_BATCH_WAIT_MS else NEXT_BATCH_WAIT_MS
+                if (System.currentTimeMillis() - lastBatchAt > wait) syncing.compareAndSet(count, null)
+            }
+        }
+    }
+
+    /** Imports one batch (walib's OnHistory JSON) and advances [syncing]. */
+    fun receive(json: String): HistoryBatch {
+        val batch = parse(json)
+        import(batch)
+        if (!batch.onDemand) {
+            lastBatchAt = System.currentTimeMillis()
+            val done = batch.type == "FULL" && batch.progress >= 100
+            syncing.update { n -> if (n == null || done) null else n + batch.messages.size }
+        }
+        return batch
+    }
+
     fun parse(json: String): HistoryBatch {
         val o = JSONObject(json)
         val chats =
@@ -36,6 +79,7 @@ object History {
                     isGroup = it.getBoolean("isGroup"),
                     status = it.optInt("status"),
                     media = it.optString("media"),
+                    mediaRef = it.optString("mediaRef"),
                 )
             }
         // Old messages count as read (no blue ticks for them now), except the ones the phone

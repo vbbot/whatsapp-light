@@ -9,6 +9,7 @@ import android.content.Intent
 import android.media.Ringtone
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import vbh.ai.whatsapp.walib.Client
 import vbh.ai.whatsapp.walib.Listener
@@ -33,8 +34,6 @@ object WaCore : Listener {
 
     /** A QR code was shown, so the next connection is a fresh link. */
     @Volatile private var pairing = false
-
-    @Volatile private var lastHistoryAt = 0L
 
     fun mediaDir(): File = File(app.filesDir, "media").also { it.mkdirs() }
 
@@ -70,6 +69,7 @@ object WaCore : Listener {
                 c.setVideoRenderer(video)
                 c.setMediaDir(mediaDir().absolutePath)
                 client = c
+                Photos.downloader = { m -> c.downloadPhoto(m.id, m.mediaRef) }
                 WaState.status.value = if (c.isPaired) "connecting…" else "waiting for QR…"
                 c.connect()
             } catch (e: Exception) {
@@ -455,7 +455,7 @@ object WaCore : Listener {
         // Just linked: the main phone now sends past chats, which takes a minute or two.
         if (pairing) {
             pairing = false
-            startHistorySync()
+            History.linked()
         }
         resolveAllChats()
         loadContacts()
@@ -535,6 +535,7 @@ object WaCore : Listener {
         fromMe: Boolean,
         isGroup: Boolean,
         mediaPath: String,
+        mediaRef: String,
     ) {
         // Our own messages sent from another device have already reached the server.
         MessageStore.add(
@@ -549,6 +550,7 @@ object WaCore : Listener {
                 isGroup,
                 status = if (fromMe) Status.SENT else Status.NONE,
                 media = mediaPath,
+                mediaRef = mediaRef,
             ),
         )
         if (!isGroup) resolve(chat)
@@ -624,32 +626,9 @@ object WaCore : Listener {
         WaState.call.value = cur.copy(remoteOrientation = quarterTurns.toInt())
     }
 
-    /** Shows "syncing" until the full history has arrived or the phone goes quiet. */
-    private fun startHistorySync() {
-        WaState.historySync.value = 0
-        lastHistoryAt = System.currentTimeMillis()
-        thread(name = "wa-history-watch") {
-            while (WaState.historySync.value != null) {
-                Thread.sleep(5_000)
-                val quietFor = System.currentTimeMillis() - lastHistoryAt
-                // The first batch can take a while after linking; between batches it's seconds.
-                val limit = if (WaState.historySync.value == 0) 3 * 60_000 else 60_000
-                if (quietFor > limit) WaState.historySync.value = null
-            }
-        }
-    }
-
     override fun onHistory(json: String) {
         try {
-            val batch = History.parse(json)
-            History.import(batch)
-            if (!batch.onDemand) {
-                lastHistoryAt = System.currentTimeMillis()
-                WaState.historySync.value?.let { n ->
-                    val done = batch.type == "FULL" && batch.progress >= 100
-                    WaState.historySync.value = if (done) null else n + batch.messages.size
-                }
-            }
+            val batch = History.receive(json)
             resolveAll(batch.chats.keys.filterNot { it.endsWith("@g.us") })
         } catch (e: Exception) {
             WaState.log("history import failed: ${e.message}")

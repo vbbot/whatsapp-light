@@ -33,7 +33,8 @@ class ChatDb(
                 is_group INTEGER NOT NULL,
                 status INTEGER NOT NULL DEFAULT 0,
                 read_sent INTEGER NOT NULL DEFAULT 0,
-                media TEXT NOT NULL DEFAULT ''
+                media TEXT NOT NULL DEFAULT '',
+                media_ref TEXT NOT NULL DEFAULT ''
             )
             """.trimIndent(),
         )
@@ -62,11 +63,14 @@ class ChatDb(
         db: SQLiteDatabase,
         oldVersion: Int,
         newVersion: Int,
-    ) = Unit
+    ) {
+        // 2: download info for fetching full photos on demand.
+        if (oldVersion < 2) db.execSQL("ALTER TABLE messages ADD COLUMN media_ref TEXT NOT NULL DEFAULT ''")
+    }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 1
+        const val VERSION = 2
 
         @Volatile private var shared: ChatDb? = null
 
@@ -87,6 +91,7 @@ class ChatDb(
                 put("status", m.status)
                 put("read_sent", if (m.readSent) 1 else 0)
                 put("media", m.media)
+                put("media_ref", m.mediaRef)
             }
 
         fun msg(c: Cursor) =
@@ -102,6 +107,7 @@ class ChatDb(
                 status = c.getInt(c.getColumnIndexOrThrow("status")),
                 readSent = c.getInt(c.getColumnIndexOrThrow("read_sent")) == 1,
                 media = c.getString(c.getColumnIndexOrThrow("media")),
+                mediaRef = c.getString(c.getColumnIndexOrThrow("media_ref")),
             )
 
         fun values(r: CallRecord) =

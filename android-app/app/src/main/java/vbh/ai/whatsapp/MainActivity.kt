@@ -12,12 +12,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
@@ -125,18 +127,36 @@ class MainActivity : ComponentActivity() {
                 }
 
                 else -> {
-                    when (val s = stack.last()) {
-                        Screen.Home -> HomeScreen()
-                        is Screen.Thread -> ThreadScreen(s.chat)
-                        is Screen.Composer -> ComposerScreen(s.chat)
-                        is Screen.Contacts -> ContactsScreen(s.purpose)
-                        is Screen.Number -> NumberScreen(s.purpose)
-                        Screen.Settings -> SettingsScreen()
-                        is Screen.CallType -> CallTypeScreen(s.chat)
-                        is Screen.MediaViewer -> MediaViewerScreen(s.path, s.backTo)
-                        is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
-                    }
+                    StackScreen(stack)
                 }
+            }
+        }
+    }
+
+    /**
+     * Shows the top of the back stack. Each entry keeps its saved state (scroll positions,
+     * loaded pages) while it is covered by the screens above it, and loses it once popped.
+     */
+    @Composable
+    private fun StackScreen(stack: List<Screen>) {
+        val holder = rememberSaveableStateHolder()
+        val keys = stack.mapIndexed(::entryKey)
+        var kept by remember { mutableStateOf(keys.toSet()) }
+        LaunchedEffect(keys) {
+            (kept - keys.toSet()).forEach(holder::removeState)
+            kept = keys.toSet()
+        }
+        holder.SaveableStateProvider(keys.last()) {
+            when (val s = stack.last()) {
+                Screen.Home -> HomeScreen()
+                is Screen.Thread -> ThreadScreen(s.chat)
+                is Screen.Composer -> ComposerScreen(s.chat)
+                is Screen.Contacts -> ContactsScreen(s.purpose)
+                is Screen.Number -> NumberScreen(s.purpose)
+                Screen.Settings -> SettingsScreen()
+                is Screen.CallType -> CallTypeScreen(s.chat)
+                is Screen.MediaViewer -> MediaViewerScreen(s.id, s.path, s.backTo)
+                is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
             }
         }
     }

@@ -22,12 +22,26 @@ data class Msg(
     val readSent: Boolean = false,
     /** Local file for a photo (full size once downloaded) or a video's thumbnail; "" if none. */
     val media: String = "",
+    /** Download info for the full photo (see [Photos]); "" if none. */
+    val mediaRef: String = "",
 ) {
+    /** A photo we only have the small embedded preview of. */
+    val needsFullPhoto: Boolean get() = !isVideo && mediaRef.isNotEmpty() && (media.isEmpty() || isThumbnailFile(media))
+
+    /**
+     * Shown as a picture: there's a file, or the photo can be fetched. History photos often
+     * come without an embedded preview, so the file may not exist yet.
+     */
+    val hasPicture: Boolean get() = media.isNotEmpty() || needsFullPhoto
+
     val isVideo: Boolean get() = text.startsWith("[video]")
 
     /** Caption, without the "[image]" / "[video]" placeholder. */
     val caption: String get() = text.removePrefix("[image]").removePrefix("[video]").trim()
 }
+
+/** walib saves a message's embedded preview as "<id>_t.jpg" and the full photo as "<id>.jpg". */
+fun isThumbnailFile(path: String): Boolean = path.endsWith("_t.jpg")
 
 /** Delivery state of our own messages; only ever moves forward. */
 object Status {
@@ -147,7 +161,14 @@ object MessageStore {
             m.copy(
                 status = maxOf(m.status, old?.status ?: Status.NONE, earlyReceipts.remove(m.id) ?: Status.NONE),
                 readSent = m.readSent || old?.readSent == true,
-                media = m.media.ifEmpty { old?.media.orEmpty() },
+                // Never swap a downloaded photo back for its thumbnail (history re-sends those).
+                media =
+                    when {
+                        m.media.isEmpty() -> old?.media.orEmpty()
+                        old != null && old.media.isNotEmpty() && !isThumbnailFile(old.media) && isThumbnailFile(m.media) -> old.media
+                        else -> m.media
+                    },
+                mediaRef = m.mediaRef.ifEmpty { old?.mediaRef.orEmpty() },
                 senderName = m.senderName.ifEmpty { old?.senderName.orEmpty() },
             )
         d.insertWithOnConflict("messages", null, ChatDb.values(merged), SQLiteDatabase.CONFLICT_REPLACE)
@@ -358,6 +379,9 @@ object MessageStore {
         val mine = pendingNow().filter { it.chat == chat }
         return if (mine.isEmpty()) stored else (stored + mine).sortedBy { it.ts }
     }
+
+    /** One stored message, or null. */
+    fun get(id: String): Msg? = db?.rawQuery("SELECT * FROM messages WHERE id = ?", arrayOf(id))?.readAll(ChatDb::msg)?.firstOrNull()
 
     /** How many messages of [chat] are stored. */
     fun count(chat: String): Int =

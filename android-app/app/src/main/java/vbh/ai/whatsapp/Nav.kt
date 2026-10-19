@@ -34,8 +34,9 @@ sealed interface Screen {
 
     data object Settings : Screen
 
-    /** A photo (or a video's thumbnail) full screen. */
+    /** A message's photo (or a video's thumbnail) full screen; [path] is what it showed when opened. */
     data class MediaViewer(
+        val id: String,
         val path: String,
         val backTo: String,
     ) : Screen
@@ -51,6 +52,12 @@ sealed interface Screen {
         val video: Boolean,
     ) : Screen
 }
+
+/** Identifies a back-stack entry, for keeping its screen's saved state: position and destination. */
+fun entryKey(
+    index: Int,
+    screen: Screen,
+) = "$index/$screen"
 
 /** Minimal back stack. Keeps [MessageStore.openChat] in sync so open threads stay quiet. */
 object Nav {

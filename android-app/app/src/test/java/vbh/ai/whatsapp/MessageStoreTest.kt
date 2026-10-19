@@ -133,6 +133,57 @@ class MessageStoreTest {
         assertTrue(File(context.filesDir, "messages.json.migrated").exists())
     }
 
+    @Test fun downloadedPhotoIsNotReplacedByItsThumbnail() {
+        val photo = Msg("p", "a@lid", "a@lid", "", "[image]", 10, false, false, media = "/m/p_t.jpg", mediaRef = "REF")
+        MessageStore.add(photo)
+        assertTrue(MessageStore.get("p")!!.needsFullPhoto)
+        MessageStore.setMedia("p", "/m/p.jpg")
+        // History sends the same message again, with its preview and no ref.
+        MessageStore.add(photo.copy(mediaRef = ""))
+        val got = MessageStore.get("p")!!
+        assertEquals("/m/p.jpg", got.media)
+        assertEquals("REF", got.mediaRef)
+        assertFalse(got.needsFullPhoto)
+    }
+
+    @Test fun needsFullPhotoOnlyForPhotoPreviewsWithARef() {
+        val base = Msg("v", "a@lid", "a@lid", "", "[image]", 1, false, false, media = "/m/v_t.jpg", mediaRef = "REF")
+        assertTrue(base.needsFullPhoto)
+        assertFalse(base.copy(mediaRef = "").needsFullPhoto)
+        assertFalse(base.copy(text = "[video]").needsFullPhoto)
+        assertFalse(base.copy(media = "/m/v.jpg").needsFullPhoto)
+        // No preview at all: still a picture, to be fetched.
+        assertTrue(base.copy(media = "").needsFullPhoto)
+        assertTrue(base.copy(media = "").hasPicture)
+        assertFalse(base.copy(media = "", mediaRef = "").hasPicture)
+    }
+
+    @Test fun upgradesVersionOneDatabase() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val file =
+            context.getDatabasePath("upgrade-test.db").also {
+                it.parentFile?.mkdirs()
+                it.delete()
+            }
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { old ->
+            old.execSQL(
+                "CREATE TABLE messages (id TEXT PRIMARY KEY, chat TEXT NOT NULL, sender TEXT NOT NULL, " +
+                    "sender_name TEXT NOT NULL DEFAULT '', text TEXT NOT NULL, ts INTEGER NOT NULL, " +
+                    "from_me INTEGER NOT NULL, is_group INTEGER NOT NULL, status INTEGER NOT NULL DEFAULT 0, " +
+                    "read_sent INTEGER NOT NULL DEFAULT 0, media TEXT NOT NULL DEFAULT '')",
+            )
+            old.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '')")
+            old.execSQL("INSERT INTO messages(id, chat, sender, text, ts, from_me, is_group) VALUES('1', 'a@lid', 'a@lid', 'old', 5, 0, 0)")
+            old.version = 1
+        }
+        val upgraded = ChatDb(context, "upgrade-test.db").writableDatabase
+        MessageStore.open(upgraded)
+        assertEquals("old", MessageStore.get("1")?.text)
+        assertEquals("", MessageStore.get("1")?.mediaRef)
+        upgraded.close()
+        MessageStore.open(db)
+    }
+
     @Test fun captionStripsPlaceholder() {
         val img = Msg("i", "a@lid", "a@lid", "", "[image] look", 1, false, false)
         assertEquals("look", img.caption)

@@ -53,9 +53,6 @@ object WaState {
     val call = MutableStateFlow<CallUi?>(null)
     val error = MutableStateFlow<String?>(null)
 
-    /** History transfer after linking: messages received so far, or null when not syncing. */
-    val historySync = MutableStateFlow<Int?>(null)
-
     /** Decoded size of the peer's video, once known. */
     val remoteVideoSize = MutableStateFlow<Pair<Int, Int>?>(null)
     val logs = MutableStateFlow<List<String>>(emptyList())
