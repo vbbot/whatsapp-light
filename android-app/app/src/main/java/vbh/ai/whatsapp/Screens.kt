@@ -1,15 +1,14 @@
 package vbh.ai.whatsapp
 
 import android.graphics.Bitmap
-import android.graphics.Color as AColor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,15 +26,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -55,6 +54,7 @@ import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.lightClickable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import android.graphics.Color as AColor
 
 private const val LOADING_TEXT = "loading…"
 private const val MESSAGE_WIDTH_FRACTION = 0.875f
@@ -69,7 +69,10 @@ private fun ScreenColumn(content: @Composable androidx.compose.foundation.layout
 }
 
 @Composable
-private fun backButton(destination: String, onClick: () -> Unit) = LightBarButton.LightIcon(
+private fun backButton(
+    destination: String,
+    onClick: () -> Unit,
+) = LightBarButton.LightIcon(
     icon = LightIcons.BACK,
     onClick = onClick,
     contentDescription = "Back to $destination",
@@ -134,14 +137,23 @@ fun HomeScreen() {
         }
         TabBar(
             modifier = Modifier.navigationBarsPadding(),
-            items = listOf(
-                TabItem(R.drawable.ic_messages, "Messages", selected = tab == Tab.MESSAGES) { Nav.tab.value = Tab.MESSAGES },
-                TabItem(LightIcons.CALL.drawableResource, "Calls", selected = tab == Tab.CALLS) { Nav.tab.value = Tab.CALLS },
-                when (tab) {
-                    Tab.MESSAGES -> TabItem(LightIcons.COMPOSE_MESSAGE.drawableResource, "New chat") { Nav.push(Screen.Contacts(Purpose.MESSAGE)) }
-                    Tab.CALLS -> TabItem(LightIcons.DIALPAD.drawableResource, "New call") { Nav.push(Screen.Contacts(Purpose.CALL)) }
-                },
-            ),
+            items =
+                listOf(
+                    TabItem(R.drawable.ic_messages, "Messages", selected = tab == Tab.MESSAGES) { Nav.tab.value = Tab.MESSAGES },
+                    TabItem(LightIcons.CALL.drawableResource, "Calls", selected = tab == Tab.CALLS) { Nav.tab.value = Tab.CALLS },
+                    when (tab) {
+                        Tab.MESSAGES -> {
+                            TabItem(
+                                LightIcons.COMPOSE_MESSAGE.drawableResource,
+                                "New chat",
+                            ) { Nav.push(Screen.Contacts(Purpose.MESSAGE)) }
+                        }
+
+                        Tab.CALLS -> {
+                            TabItem(LightIcons.DIALPAD.drawableResource, "New call") { Nav.push(Screen.Contacts(Purpose.CALL)) }
+                        }
+                    },
+                ),
         )
     }
 }
@@ -156,23 +168,36 @@ private fun ChatList() {
     val chats = remember(all) { MessageStore.chats(all) }
     val listState = rememberLazyListState()
     when {
-        chats.isNotEmpty() -> LightLazyScrollView(uniformItemHeightGridUnits = 4.5f, listState = listState) {
-            items(chats, key = { it.first }) { (chat, last) ->
-                ChatRow(
-                    name = remember(names, phones, all) { MessageStore.title(chat, all) },
-                    time = formatRowTime(last.ts),
-                    unread = MessageStore.hasUnread(chat, all, read),
-                    onOpen = { Nav.push(Screen.Thread(chat)) },
-                )
+        chats.isNotEmpty() -> {
+            LightLazyScrollView(uniformItemHeightGridUnits = 4.5f, listState = listState) {
+                items(chats, key = { it.first }) { (chat, last) ->
+                    ChatRow(
+                        name = remember(names, phones, all) { MessageStore.title(chat, all) },
+                        time = formatRowTime(last.ts),
+                        unread = MessageStore.hasUnread(chat, all, read),
+                        onOpen = { Nav.push(Screen.Thread(chat)) },
+                    )
+                }
             }
         }
-        !connected -> StatusText(LOADING_TEXT)
-        else -> StatusText("No conversations. Tap the pencil to start one.")
+
+        !connected -> {
+            StatusText(LOADING_TEXT)
+        }
+
+        else -> {
+            StatusText("No conversations. Tap the pencil to start one.")
+        }
     }
 }
 
 @Composable
-private fun ChatRow(name: String, time: String, unread: Boolean, onOpen: () -> Unit) {
+private fun ChatRow(
+    name: String,
+    time: String,
+    unread: Boolean,
+    onOpen: () -> Unit,
+) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -223,7 +248,14 @@ private fun CallList() {
 }
 
 @Composable
-private fun CallRow(name: String, summary: String, time: String, flagged: Boolean, label: String, onClick: () -> Unit) {
+private fun CallRow(
+    name: String,
+    summary: String,
+    time: String,
+    flagged: Boolean,
+    label: String,
+    onClick: () -> Unit,
+) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -267,7 +299,10 @@ data class TabItem(
  * Unselected destinations render in contentSecondary; state is never carried by hue.
  */
 @Composable
-fun TabBar(items: List<TabItem>, modifier: Modifier = Modifier) {
+fun TabBar(
+    items: List<TabItem>,
+    modifier: Modifier = Modifier,
+) {
     val colors = LightThemeTokens.colors
     Row(
         modifier
@@ -279,25 +314,34 @@ fun TabBar(items: List<TabItem>, modifier: Modifier = Modifier) {
         items.forEachIndexed { i, item ->
             Box(
                 Modifier.weight(1f),
-                contentAlignment = when (i) {
-                    0 -> Alignment.CenterStart
-                    items.lastIndex -> Alignment.CenterEnd
-                    else -> Alignment.Center
-                },
+                contentAlignment =
+                    when (i) {
+                        0 -> Alignment.CenterStart
+                        items.lastIndex -> Alignment.CenterEnd
+                        else -> Alignment.Center
+                    },
             ) {
                 Box(
                     Modifier
                         .height(4f.gridUnitsAsDp())
                         .lightClickable(
                             onClickLabel = item.description,
-                            role = if (item.selected != null) androidx.compose.ui.semantics.Role.Tab else androidx.compose.ui.semantics.Role.Button,
+                            role =
+                                if (item.selected !=
+                                    null
+                                ) {
+                                    androidx.compose.ui.semantics.Role.Tab
+                                } else {
+                                    androidx.compose.ui.semantics.Role.Button
+                                },
                             onClick = item.onClick,
-                        )
-                        .semantics { if (item.selected != null) selected = item.selected },
+                        ).semantics { if (item.selected != null) selected = item.selected },
                     contentAlignment = Alignment.Center,
                 ) {
                     androidx.compose.material3.Icon(
-                        painter = androidx.compose.ui.res.painterResource(item.icon),
+                        painter =
+                            androidx.compose.ui.res
+                                .painterResource(item.icon),
                         contentDescription = item.description,
                         tint = if (item.selected == false) colors.contentSecondary else colors.content,
                         modifier = Modifier.size(2f.gridUnitsAsDp()),
@@ -325,7 +369,7 @@ fun ThreadScreen(chat: String) {
     val seenStatus by AppSettings.seenStatus.collectAsState()
     val connected by WaState.connected.collectAsState()
     LaunchedEffect(msgs.size, seenStatus, connected) { WaCore.sendReadReceipts(chat) }
-    val tag = remember(msgs, isGroup) { if (isGroup) null else statusTag(msgs) }
+    val tag = remember(msgs, isGroup) { if (isGroup) null else receiptTag(msgs) }
     LaunchedEffect(msgs.size) {
         MessageStore.markRead(chat)
         delay(50)
@@ -348,9 +392,16 @@ fun ThreadScreen(chat: String) {
                         LightScrollView(scrollState = scrollState) {
                             msgs.forEachIndexed { i, m ->
                                 val prev = msgs.getOrNull(i - 1)
-                                val showTime = prev == null || prev.fromMe != m.fromMe ||
-                                    prev.sender != m.sender || m.ts - prev.ts > GROUP_GAP_MS
-                                MessageRow(m, showTime = showTime, showSender = isGroup && showTime, tag = tag?.takeIf { it.first == m.id }?.second, chatTitle = title)
+                                val showTime =
+                                    prev == null || prev.fromMe != m.fromMe ||
+                                        prev.sender != m.sender || m.ts - prev.ts > GROUP_GAP_MS
+                                MessageRow(
+                                    m,
+                                    showTime = showTime,
+                                    showSender = isGroup && showTime,
+                                    tag = tag?.takeIf { it.first == m.id }?.second,
+                                    chatTitle = title,
+                                )
                             }
                             Box(Modifier.height(1f.gridUnitsAsDp()))
                         }
@@ -362,19 +413,26 @@ fun ThreadScreen(chat: String) {
             modifier = Modifier.navigationBarsPadding(),
             // Call (choose voice or video next) | attach a photo or video | write.
             // Groups can't be called here; the slot stays empty so the others keep their places.
-            items = listOf(
-                if (isGroup) null else icon(LightIcons.CALL, "Call $title") { Nav.push(Screen.CallType(chat)) },
-                icon(LightIcons.ADD, "Send a photo or video to $title") {
-                    MediaPicker.pick { uri -> if (uri != null) WaCore.sendMedia(chat, uri) }
-                },
-                icon(LightIcons.COMPOSE_MESSAGE, "Write a message to $title") { Nav.push(Screen.Composer(chat)) },
-            ),
+            items =
+                listOf(
+                    if (isGroup) null else icon(LightIcons.CALL, "Call $title") { Nav.push(Screen.CallType(chat)) },
+                    icon(LightIcons.ADD, "Send a photo or video to $title") {
+                        MediaPicker.pick { uri -> if (uri != null) WaCore.sendMedia(chat, uri) }
+                    },
+                    icon(LightIcons.COMPOSE_MESSAGE, "Write a message to $title") { Nav.push(Screen.Composer(chat)) },
+                ),
         )
     }
 }
 
 @Composable
-private fun MessageRow(m: Msg, showTime: Boolean, showSender: Boolean, tag: String?, chatTitle: String) {
+private fun MessageRow(
+    m: Msg,
+    showTime: Boolean,
+    showSender: Boolean,
+    tag: String?,
+    chatTitle: String,
+) {
     // Outgoing sits right, incoming left, each capped at 7/8 of the row. Outgoing gets a
     // wider right buffer so it stays clear of the scrollbar.
     BoxWithConstraints(
@@ -423,25 +481,41 @@ private fun MessageRow(m: Msg, showTime: Boolean, showSender: Boolean, tag: Stri
 
 /** Decodes [path] scaled down to about [maxSide] px, off the main thread; null until ready. */
 @Composable
-private fun rememberBitmap(path: String, maxSide: Int): androidx.compose.ui.graphics.ImageBitmap? {
-    val state = androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, path, maxSide) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                android.graphics.BitmapFactory.decodeFile(path, bounds)
-                var sample = 1
-                while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
-                android.graphics.BitmapFactory.decodeFile(path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
-                    ?.asImageBitmap()
-            }.getOrNull()
+private fun rememberBitmap(
+    path: String,
+    maxSide: Int,
+): androidx.compose.ui.graphics.ImageBitmap? {
+    val state =
+        androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, path, maxSide) {
+            value =
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        val bounds =
+                            android.graphics.BitmapFactory
+                                .Options()
+                                .apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(path, bounds)
+                        var sample = 1
+                        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
+                        android.graphics.BitmapFactory
+                            .decodeFile(
+                                path,
+                                android.graphics.BitmapFactory
+                                    .Options()
+                                    .apply { inSampleSize = sample },
+                            )?.asImageBitmap()
+                    }.getOrNull()
+                }
         }
-    }
     return state.value
 }
 
 /** A photo in a thread row: 60% of the row wide, its own aspect ratio, tap to open. */
 @Composable
-private fun MediaThumb(path: String, onOpen: () -> Unit) {
+private fun MediaThumb(
+    path: String,
+    onOpen: () -> Unit,
+) {
     val bmp = rememberBitmap(path, 720)
     if (bmp == null) {
         LightText(text = "photo", variant = LightTextVariant.Detail, lighten = true)
@@ -451,48 +525,37 @@ private fun MediaThumb(path: String, onOpen: () -> Unit) {
         bitmap = bmp,
         contentDescription = "Photo, open full screen",
         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-        modifier = Modifier
-            .fillMaxWidth(0.7f)
-            .aspectRatio(bmp.width.toFloat() / bmp.height.coerceAtLeast(1))
-            .lightClickable(onClickLabel = "Open photo", onClick = onOpen),
+        modifier =
+            Modifier
+                .fillMaxWidth(0.7f)
+                .aspectRatio(bmp.width.toFloat() / bmp.height.coerceAtLeast(1))
+                .lightClickable(onClickLabel = "Open photo", onClick = onOpen),
     )
 }
 
 /** Full-screen photo; back returns to the chat. */
 @Composable
-fun MediaViewerScreen(path: String, backTo: String) {
+fun MediaViewerScreen(
+    path: String,
+    backTo: String,
+) {
     val bmp = rememberBitmap(path, 2048)
     ScreenColumn {
         LightTopBar(leftButton = backButton(backTo) { Nav.pop() })
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            if (bmp == null) StatusText(LOADING_TEXT)
-            else Image(
-                bitmap = bmp,
-                contentDescription = "Photo",
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (bmp == null) {
+                StatusText(LOADING_TEXT)
+            } else {
+                Image(
+                    bitmap = bmp,
+                    contentDescription = "Photo",
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
     }
-}
-
-/**
- * Where the single receipt tag goes in a 1:1 thread, and what it says (Chats' rules):
- * - only our newest message gets "sent"/"delivered";
- * - "seen" marks the newest message they've read, even if we sent more after it;
- * - their reply being the newest message drops the tag (a reply says they read it),
- *   except "seen" stays when they haven't read our newest message yet.
- */
-private fun statusTag(msgs: List<Msg>): Pair<String, String>? {
-    val newestMine = msgs.lastOrNull { it.fromMe && !it.pending } ?: return null
-    val newestSeen = msgs.lastOrNull { it.fromMe && it.status >= Status.SEEN }
-    val replyIsNewest = msgs.lastOrNull()?.fromMe == false
-    val seen = if (newestSeen != null && newestSeen.id == newestMine.id && replyIsNewest) null
-        else newestSeen?.let { it.id to "seen" }
-    val progress = newestMine.takeIf { !replyIsNewest && it.status in Status.SENT..Status.DELIVERED }
-        ?.let { it.id to Status.label(it.status)!! }
-    return if (newestSeen?.id == newestMine.id) seen else progress ?: seen
 }
 
 // ---------------------------------------------------------------- composer / dial / new chat
@@ -528,8 +591,15 @@ fun ComposerScreen(chat: String) {
 /** Unsent drafts survive leaving the composer; process-scoped. */
 private object Drafts {
     private val map = mutableMapOf<String, String>()
+
     fun get(chat: String) = map[chat].orEmpty()
-    fun set(chat: String, text: String) { if (text.isEmpty()) map.remove(chat) else map[chat] = text }
+
+    fun set(
+        chat: String,
+        text: String,
+    ) {
+        if (text.isEmpty()) map.remove(chat) else map[chat] = text
+    }
 }
 
 /**
@@ -539,9 +609,14 @@ private object Drafts {
 private fun normalizeNumber(raw: String): String? {
     val cleaned = raw.trim()
     if (cleaned.count { it.isDigit() } < 7) return null
-    val region = java.util.Locale.getDefault().country.ifBlank { "GB" }
-    val e164 = android.telephony.PhoneNumberUtils.formatNumberToE164(cleaned, region)
-        ?: cleaned.filter { it.isDigit() || it == '+' }.takeIf { it.startsWith("+") }
+    val region =
+        java.util.Locale
+            .getDefault()
+            .country
+            .ifBlank { "GB" }
+    val e164 =
+        android.telephony.PhoneNumberUtils.formatNumberToE164(cleaned, region)
+            ?: cleaned.filter { it.isDigit() || it == '+' }.takeIf { it.startsWith("+") }
     val digits = e164?.filter { it.isDigit() } ?: return null
     return digits.takeIf { it.length in 8..15 }
 }
@@ -558,10 +633,20 @@ fun NumberScreen(purpose: Purpose) {
         onSubmit = { text ->
             val digits = normalizeNumber(text.toString())
             when {
-                digits == null -> android.widget.Toast
-                    .makeText(context, "Enter the number with its country code", android.widget.Toast.LENGTH_SHORT).show()
-                purpose == Purpose.CALL -> { WaCore.call(digits); Nav.pop() }
-                else -> WaCore.canonicalChat(digits) { Nav.replaceTop(Screen.Thread(it)) }
+                digits == null -> {
+                    android.widget.Toast
+                        .makeText(context, "Enter the number with its country code", android.widget.Toast.LENGTH_SHORT)
+                        .show()
+                }
+
+                purpose == Purpose.CALL -> {
+                    WaCore.call(digits)
+                    Nav.pop()
+                }
+
+                else -> {
+                    WaCore.canonicalChat(digits) { Nav.replaceTop(Screen.Thread(it)) }
+                }
             }
         },
         onBack = { Nav.pop() },
@@ -586,16 +671,18 @@ fun ContactsScreen(purpose: Purpose) {
     LaunchedEffect(connected) { if (connected) WaCore.loadContacts() }
 
     // Saved contacts, plus anyone already chatted with or called who isn't a saved contact.
-    val entries = remember(contacts, all, calls, names, phones) {
-        val known = contacts.map { it.chat }.toSet()
-        val others = (MessageStore.chats(all).map { it.first } + calls.map { it.peer })
-            .distinct()
-            .filter { it !in known && !it.endsWith("@g.us") }
-            .map { Contact(it, MessageStore.title(it, all), phones[it].orEmpty()) }
-            .filter { it.name != "Unknown contact" }
-        // Named people alphabetically, bare numbers after them.
-        (contacts + others).sortedWith(compareBy({ it.name.startsWith("+") }, { it.name.lowercase() }))
-    }
+    val entries =
+        remember(contacts, all, calls, names, phones) {
+            val known = contacts.map { it.chat }.toSet()
+            val others =
+                (MessageStore.chats(all).map { it.first } + calls.map { it.peer })
+                    .distinct()
+                    .filter { it !in known && !it.endsWith("@g.us") }
+                    .map { Contact(it, MessageStore.title(it, all), phones[it].orEmpty()) }
+                    .filter { it.name != "Unknown contact" }
+            // Named people alphabetically, bare numbers after them.
+            (contacts + others).sortedWith(compareBy({ it.name.startsWith("+") }, { it.name.lowercase() }))
+        }
     val listState = rememberLazyListState()
     val title = if (purpose == Purpose.CALL) "New call" else "New chat"
     val back = if (purpose == Purpose.CALL) "calls" else "messages"
@@ -610,18 +697,32 @@ fun ContactsScreen(purpose: Purpose) {
                 ContactRow(name = "Enter a number", subtitle = "for someone not listed") { Nav.replaceTop(Screen.Number(purpose)) }
                 Box(Modifier.weight(1f)) {
                     when {
-                        entries.isNotEmpty() -> LightLazyScrollView(uniformItemHeightGridUnits = 4.5f, listState = listState) {
-                            items(entries, key = { it.chat }) { c ->
-                                ContactRow(name = c.name, subtitle = null) {
-                                    when (purpose) {
-                                        Purpose.MESSAGE -> Nav.replaceTop(Screen.Thread(c.chat))
-                                        Purpose.CALL -> { WaCore.call(c.chat); Nav.pop() }
+                        entries.isNotEmpty() -> {
+                            LightLazyScrollView(uniformItemHeightGridUnits = 4.5f, listState = listState) {
+                                items(entries, key = { it.chat }) { c ->
+                                    ContactRow(name = c.name, subtitle = null) {
+                                        when (purpose) {
+                                            Purpose.MESSAGE -> {
+                                                Nav.replaceTop(Screen.Thread(c.chat))
+                                            }
+
+                                            Purpose.CALL -> {
+                                                WaCore.call(c.chat)
+                                                Nav.pop()
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
-                        !loaded -> StatusText(LOADING_TEXT)
-                        else -> StatusText("No contacts yet. WhatsApp hasn't synced them to this phone.")
+
+                        !loaded -> {
+                            StatusText(LOADING_TEXT)
+                        }
+
+                        else -> {
+                            StatusText("No contacts yet. WhatsApp hasn't synced them to this phone.")
+                        }
                     }
                 }
             }
@@ -631,7 +732,11 @@ fun ContactsScreen(purpose: Purpose) {
 }
 
 @Composable
-private fun ContactRow(name: String, subtitle: String?, onClick: () -> Unit) {
+private fun ContactRow(
+    name: String,
+    subtitle: String?,
+    onClick: () -> Unit,
+) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -666,11 +771,15 @@ fun CallTypeScreen(chat: String) {
 
 /** Confirms before dialling (same grammar as the Chats confirm panel: question, then CALL). */
 @Composable
-fun CallConfirmScreen(chat: String, video: Boolean) {
+fun CallConfirmScreen(
+    chat: String,
+    video: Boolean,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val all by MessageStore.messages.collectAsState()
     val names by MessageStore.names.collectAsState()
     val title = remember(all, chat, names) { MessageStore.title(chat, all) }
+
     fun dial() {
         // Back to the thread first, so ending the call returns there, not to this screen.
         Nav.pop()
@@ -680,7 +789,11 @@ fun CallConfirmScreen(chat: String, video: Boolean) {
     ScreenColumn {
         LightTopBar(leftButton = backButton("call options") { Nav.pop() })
         Box(
-            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 2f.gridUnitsAsDp()).padding(bottom = 4f.gridUnitsAsDp()),
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 2f.gridUnitsAsDp())
+                .padding(bottom = 4f.gridUnitsAsDp()),
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -702,19 +815,31 @@ fun CallConfirmScreen(chat: String, video: Boolean) {
         }
         LightBottomBar(
             modifier = Modifier.navigationBarsPadding(),
-            items = listOf(
-                LightBarButton.Text(
-                    text = "CALL",
-                    contentDescription = if (video) "Start video call with $title" else "Start voice call with $title",
-                    onClick = {
-                        if (!video) dial()
-                        else CameraGate.withCamera { ok ->
-                            if (ok) dial()
-                            else android.widget.Toast.makeText(context, "Camera access is needed for video calls", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    },
+            items =
+                listOf(
+                    LightBarButton.Text(
+                        text = "CALL",
+                        contentDescription = if (video) "Start video call with $title" else "Start voice call with $title",
+                        onClick = {
+                            if (!video) {
+                                dial()
+                            } else {
+                                CameraGate.withCamera { ok ->
+                                    if (ok) {
+                                        dial()
+                                    } else {
+                                        android.widget.Toast
+                                            .makeText(
+                                                context,
+                                                "Camera access is needed for video calls",
+                                                android.widget.Toast.LENGTH_SHORT,
+                                            ).show()
+                                    }
+                                }
+                            }
+                        },
+                    ),
                 ),
-            ),
         )
     }
 }
@@ -728,7 +853,13 @@ fun SettingsScreen() {
     val seenStatus by AppSettings.seenStatus.collectAsState()
     ScreenColumn {
         LightTopBar(
-            leftButton = backButton(Nav.tab.collectAsState().value.label.lowercase()) { Nav.pop() },
+            leftButton =
+                backButton(
+                    Nav.tab
+                        .collectAsState()
+                        .value.label
+                        .lowercase(),
+                ) { Nav.pop() },
             center = LightTopBarCenter.Text("Settings"),
         )
         Box(Modifier.weight(1f)) {
@@ -749,7 +880,12 @@ fun SettingsScreen() {
 
 /** Toggle row as in Chats: the LP3 switch glyph, then title (names the setting) and consequence. */
 @Composable
-private fun ToggleRow(checked: Boolean, title: String, subtitle: String, onToggle: () -> Unit) {
+private fun ToggleRow(
+    checked: Boolean,
+    title: String,
+    subtitle: String,
+    onToggle: () -> Unit,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -757,8 +893,7 @@ private fun ToggleRow(checked: Boolean, title: String, subtitle: String, onToggl
                 onClickLabel = if (checked) "Turn off $title" else "Turn on $title",
                 role = androidx.compose.ui.semantics.Role.Switch,
                 onClick = onToggle,
-            )
-            .padding(horizontal = 2f.gridUnitsAsDp(), vertical = 0.75f.gridUnitsAsDp()),
+            ).padding(horizontal = 2f.gridUnitsAsDp(), vertical = 0.75f.gridUnitsAsDp()),
         verticalAlignment = Alignment.Top,
     ) {
         Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
@@ -778,7 +913,10 @@ private fun ToggleRow(checked: Boolean, title: String, subtitle: String, onToggl
 
 /** Title names the setting; the lowercase subtitle states what it governs. */
 @Composable
-private fun SettingRow(title: String, subtitle: String) {
+private fun SettingRow(
+    title: String,
+    subtitle: String,
+) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 2f.gridUnitsAsDp(), vertical = 10.dp)) {
         LightText(text = title, variant = LightTextVariant.Heading)
         LightText(text = subtitle, variant = LightTextVariant.Detail, lighten = true)
@@ -810,7 +948,10 @@ fun PairingScreen(code: String) {
     }
 }
 
-private fun qrBitmap(text: String, size: Int = 600): Bitmap {
+private fun qrBitmap(
+    text: String,
+    size: Int = 600,
+): Bitmap {
     val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size)
     val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
     for (x in 0 until size) for (y in 0 until size) bmp.setPixel(x, y, if (m[x, y]) AColor.BLACK else AColor.WHITE)
@@ -820,11 +961,18 @@ private fun qrBitmap(text: String, size: Int = 600): Bitmap {
 // ---------------------------------------------------------------- calls
 
 @Composable
-fun IncomingCallScreen(call: CallUi, title: String) {
+fun IncomingCallScreen(
+    call: CallUi,
+    title: String,
+) {
     ScreenColumn {
         LightTopBar(center = LightTopBarCenter.Text("WhatsApp"))
         Column(
-            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 2f.gridUnitsAsDp()).padding(bottom = 4f.gridUnitsAsDp()),
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 2f.gridUnitsAsDp())
+                .padding(bottom = 4f.gridUnitsAsDp()),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -844,18 +992,26 @@ fun IncomingCallScreen(call: CallUi, title: String) {
         }
         LightBottomBar(
             modifier = Modifier.navigationBarsPadding(),
-            items = listOf(
-                icon(LightIcons.DENY, "Decline call from $title") { WaCore.reject() },
-                if (call.video) icon(LightIcons.CAMERA, "Answer video call from $title") {
-                    CameraGate.withCamera { ok -> WaCore.answer(withCamera = ok) }
-                } else icon(LightIcons.CALL, "Answer call from $title") { WaCore.answer() },
-            ),
+            items =
+                listOf(
+                    icon(LightIcons.DENY, "Decline call from $title") { WaCore.reject() },
+                    if (call.video) {
+                        icon(LightIcons.CAMERA, "Answer video call from $title") {
+                            CameraGate.withCamera { ok -> WaCore.answer(withCamera = ok) }
+                        }
+                    } else {
+                        icon(LightIcons.CALL, "Answer call from $title") { WaCore.answer() }
+                    },
+                ),
         )
     }
 }
 
 @Composable
-fun InCallScreen(call: CallUi, title: String) {
+fun InCallScreen(
+    call: CallUi,
+    title: String,
+) {
     // Tick once a second while connected so the duration stays live.
     val now = remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(call.connectedAt) {
@@ -864,15 +1020,20 @@ fun InCallScreen(call: CallUi, title: String) {
             delay(1000)
         }
     }
-    val status = when {
-        call.upgradeRequested -> "wants to switch to video"
-        call.connectedAt != 0L && call.phase == 4 -> formatDuration(now.longValue - call.connectedAt)
-        else -> call.phaseLabel
-    }
+    val status =
+        when {
+            call.upgradeRequested -> "wants to switch to video"
+            call.connectedAt != 0L && call.phase == 4 -> formatDuration(now.longValue - call.connectedAt)
+            else -> call.phaseLabel
+        }
     ScreenColumn {
         LightTopBar(center = LightTopBarCenter.Text("WhatsApp"))
         Column(
-            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 2f.gridUnitsAsDp()).padding(bottom = 4f.gridUnitsAsDp()),
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 2f.gridUnitsAsDp())
+                .padding(bottom = 4f.gridUnitsAsDp()),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -892,18 +1053,29 @@ fun InCallScreen(call: CallUi, title: String) {
         }
         LightBottomBar(
             modifier = Modifier.navigationBarsPadding(),
-            items = listOf(
-                if (call.muted) icon(LightIcons.MUTE, "Unmute microphone") { WaCore.setMuted(false) }
-                else icon(LightIcons.MICROPHONE, "Mute microphone") { WaCore.setMuted(true) },
-                if (call.speaker) icon(LightIcons.SPEAKER_ON, "Switch to earpiece") { WaCore.setSpeaker(false) }
-                else icon(LightIcons.SPEAKER_MUTED, "Switch to speaker") { WaCore.setSpeaker(true) },
-                if (call.upgradeRequested) icon(LightIcons.CAMERA, "Accept video") {
-                    CameraGate.withCamera { ok -> if (ok) WaCore.acceptVideo() }
-                } else icon(LightIcons.CAMERA, "Switch to video") {
-                    CameraGate.withCamera { ok -> if (ok) WaCore.startVideo() }
-                },
-                icon(LightIcons.DENY, "End call") { WaCore.hangup() },
-            ),
+            items =
+                listOf(
+                    if (call.muted) {
+                        icon(LightIcons.MUTE, "Unmute microphone") { WaCore.setMuted(false) }
+                    } else {
+                        icon(LightIcons.MICROPHONE, "Mute microphone") { WaCore.setMuted(true) }
+                    },
+                    if (call.speaker) {
+                        icon(LightIcons.SPEAKER_ON, "Switch to earpiece") { WaCore.setSpeaker(false) }
+                    } else {
+                        icon(LightIcons.SPEAKER_MUTED, "Switch to speaker") { WaCore.setSpeaker(true) }
+                    },
+                    if (call.upgradeRequested) {
+                        icon(LightIcons.CAMERA, "Accept video") {
+                            CameraGate.withCamera { ok -> if (ok) WaCore.acceptVideo() }
+                        }
+                    } else {
+                        icon(LightIcons.CAMERA, "Switch to video") {
+                            CameraGate.withCamera { ok -> if (ok) WaCore.startVideo() }
+                        }
+                    },
+                    icon(LightIcons.DENY, "End call") { WaCore.hangup() },
+                ),
         )
     }
 }

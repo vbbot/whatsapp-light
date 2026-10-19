@@ -24,6 +24,7 @@ data class Msg(
     val media: String = "",
 ) {
     val isVideo: Boolean get() = text.startsWith("[video]")
+
     /** Caption, without the "[image]" / "[video]" placeholder. */
     val caption: String get() = text.removePrefix("[image]").removePrefix("[video]").trim()
 }
@@ -31,16 +32,17 @@ data class Msg(
 /** Delivery state of our own messages; only ever moves forward. */
 object Status {
     const val NONE = 0
-    const val SENT = 1      // server accepted it (single tick)
+    const val SENT = 1 // server accepted it (single tick)
     const val DELIVERED = 2 // reached their phone (double tick)
-    const val SEEN = 3      // they opened it (blue ticks)
+    const val SEEN = 3 // they opened it (blue ticks)
 
-    fun label(s: Int): String? = when (s) {
-        SENT -> "sent"
-        DELIVERED -> "delivered"
-        SEEN -> "seen"
-        else -> null
-    }
+    fun label(s: Int): String? =
+        when (s) {
+            SENT -> "sent"
+            DELIVERED -> "delivered"
+            SEEN -> "seen"
+            else -> null
+        }
 }
 
 /** In-memory message list with a simple JSON file for persistence (PoC-grade). */
@@ -64,7 +66,11 @@ object MessageStore {
         prefs?.edit()?.putLong(chat, newest)?.apply()
     }
 
-    fun hasUnread(chat: String, all: List<Msg>, read: Map<String, Long>): Boolean {
+    fun hasUnread(
+        chat: String,
+        all: List<Msg>,
+        read: Map<String, Long>,
+    ): Boolean {
         val seen = read[chat] ?: 0L
         return all.any { it.chat == chat && !it.fromMe && it.ts > seen }
     }
@@ -73,22 +79,31 @@ object MessageStore {
     fun init(context: Context) {
         if (file != null) return
         file = File(context.filesDir, "messages.json")
-        prefs = context.getSharedPreferences("read", Context.MODE_PRIVATE).also { p ->
-            @Suppress("UNCHECKED_CAST")
-            lastRead.value = (p.all as Map<String, Long>)
-        }
+        prefs =
+            context.getSharedPreferences("read", Context.MODE_PRIVATE).also { p ->
+                @Suppress("UNCHECKED_CAST")
+                lastRead.value = (p.all as Map<String, Long>)
+            }
         runCatching {
             val arr = JSONArray(file!!.readText())
-            messages.value = (0 until arr.length()).map {
-                arr.getJSONObject(it).let { o ->
-                    Msg(
-                        o.getString("id"), o.getString("chat"), o.getString("sender"), o.getString("senderName"),
-                        o.getString("text"), o.getLong("ts"), o.getBoolean("fromMe"), o.getBoolean("isGroup"),
-                        status = o.optInt("status", Status.NONE), readSent = o.optBoolean("readSent", false),
-                        media = o.optString("media", ""),
-                    )
+            messages.value =
+                (0 until arr.length()).map {
+                    arr.getJSONObject(it).let { o ->
+                        Msg(
+                            o.getString("id"),
+                            o.getString("chat"),
+                            o.getString("sender"),
+                            o.getString("senderName"),
+                            o.getString("text"),
+                            o.getLong("ts"),
+                            o.getBoolean("fromMe"),
+                            o.getBoolean("isGroup"),
+                            status = o.optInt("status", Status.NONE),
+                            readSent = o.optBoolean("readSent", false),
+                            media = o.optString("media", ""),
+                        )
+                    }
                 }
-            }
         }
     }
 
@@ -100,11 +115,12 @@ object MessageStore {
         val cur = messages.value
         val old = cur.firstOrNull { it.id == m.id }
         // Never lose progress when a message is re-delivered (echo from another device, etc.).
-        val merged = m.copy(
-            status = maxOf(m.status, old?.status ?: Status.NONE, earlyReceipts.remove(m.id) ?: Status.NONE),
-            readSent = m.readSent || old?.readSent == true,
-            media = m.media.ifEmpty { old?.media.orEmpty() },
-        )
+        val merged =
+            m.copy(
+                status = maxOf(m.status, old?.status ?: Status.NONE, earlyReceipts.remove(m.id) ?: Status.NONE),
+                readSent = m.readSent || old?.readSent == true,
+                media = m.media.ifEmpty { old?.media.orEmpty() },
+            )
         // replace a pending local echo or duplicate with the same id
         messages.value = (cur.filterNot { it.id == m.id } + merged).sortedBy { it.ts }.takeLast(5000)
         save()
@@ -112,7 +128,10 @@ object MessageStore {
 
     /** A photo finished downloading: point the message at the full-size file. */
     @Synchronized
-    fun setMedia(id: String, path: String) {
+    fun setMedia(
+        id: String,
+        path: String,
+    ) {
         if (messages.value.none { it.id == id }) return
         messages.value = messages.value.map { if (it.id == id) it.copy(media = path) else it }
         save()
@@ -120,19 +139,36 @@ object MessageStore {
 
     /** Applies a delivered/seen receipt to our own messages; status only moves forward. */
     @Synchronized
-    fun applyReceipt(ids: Set<String>, status: Int) {
+    fun applyReceipt(
+        ids: Set<String>,
+        status: Int,
+    ) {
         val known = messages.value.map { it.id }.toSet()
         ids.filter { it !in known }.forEach { earlyReceipts[it] = maxOf(status, earlyReceipts[it] ?: 0) }
-        if (earlyReceipts.size > 200) earlyReceipts.keys.take(earlyReceipts.size - 200).toList().forEach { earlyReceipts.remove(it) }
-        var changed = false
-        messages.value = messages.value.map {
-            if (it.id in ids && it.fromMe && it.status < status) { changed = true; it.copy(status = status) } else it
+        if (earlyReceipts.size > 200) {
+            earlyReceipts.keys
+                .take(earlyReceipts.size - 200)
+                .toList()
+                .forEach { earlyReceipts.remove(it) }
         }
+        var changed = false
+        messages.value =
+            messages.value.map {
+                if (it.id in ids && it.fromMe && it.status < status) {
+                    changed = true
+                    it.copy(status = status)
+                } else {
+                    it
+                }
+            }
         if (changed) save()
     }
 
     /** We read these messages on another of our devices: treat the chat as read up to them. */
-    fun readElsewhere(chat: String, ids: Set<String>) {
+    fun readElsewhere(
+        chat: String,
+        ids: Set<String>,
+    ) {
         val newest = messages.value.filter { it.id in ids }.maxOfOrNull { it.ts } ?: return
         val key = messages.value.firstOrNull { it.id in ids }?.chat ?: chat
         if ((lastRead.value[key] ?: 0L) >= newest) return
@@ -156,7 +192,10 @@ object MessageStore {
         all.groupBy { it.chat }.map { it.key to it.value.maxBy { m -> m.ts } }.sortedByDescending { it.second.ts }
 
     /** Saved name, else push name from messages, else a phone number, else "Unknown contact". */
-    fun title(chat: String, all: List<Msg>): String {
+    fun title(
+        chat: String,
+        all: List<Msg>,
+    ): String {
         names.value[chat]?.takeIf { it.isNotBlank() }?.let { return it }
         all.lastOrNull { it.chat == chat && !it.fromMe && !it.isGroup && it.senderName.isNotBlank() }?.senderName?.let { return it }
         phones.value[chat]?.takeIf { it.isNotBlank() }?.let { return it }
@@ -168,10 +207,20 @@ object MessageStore {
         val f = file ?: return
         val arr = JSONArray()
         messages.value.filterNot { it.pending }.forEach {
-            arr.put(JSONObject().put("id", it.id).put("chat", it.chat).put("sender", it.sender)
-                .put("senderName", it.senderName).put("text", it.text).put("ts", it.ts)
-                .put("fromMe", it.fromMe).put("isGroup", it.isGroup)
-                .put("status", it.status).put("readSent", it.readSent).put("media", it.media))
+            arr.put(
+                JSONObject()
+                    .put("id", it.id)
+                    .put("chat", it.chat)
+                    .put("sender", it.sender)
+                    .put("senderName", it.senderName)
+                    .put("text", it.text)
+                    .put("ts", it.ts)
+                    .put("fromMe", it.fromMe)
+                    .put("isGroup", it.isGroup)
+                    .put("status", it.status)
+                    .put("readSent", it.readSent)
+                    .put("media", it.media),
+            )
         }
         runCatching { f.writeText(arr.toString()) }
     }

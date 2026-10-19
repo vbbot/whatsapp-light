@@ -3,24 +3,53 @@ package vbh.ai.whatsapp
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** The two home destinations. */
-enum class Tab(val label: String) { MESSAGES("Messages"), CALLS("Calls") }
+enum class Tab(
+    val label: String,
+) {
+    MESSAGES("Messages"),
+    CALLS("Calls"),
+}
 
 /** What a contact pick does: open a chat, or place a call. */
 enum class Purpose { MESSAGE, CALL }
 
 sealed interface Screen {
     data object Home : Screen
-    data class Thread(val chat: String) : Screen
-    data class Composer(val chat: String) : Screen
-    data class Contacts(val purpose: Purpose) : Screen
-    data class Number(val purpose: Purpose) : Screen
+
+    data class Thread(
+        val chat: String,
+    ) : Screen
+
+    data class Composer(
+        val chat: String,
+    ) : Screen
+
+    data class Contacts(
+        val purpose: Purpose,
+    ) : Screen
+
+    data class Number(
+        val purpose: Purpose,
+    ) : Screen
+
     data object Settings : Screen
+
     /** A photo (or a video's thumbnail) full screen. */
-    data class MediaViewer(val path: String, val backTo: String) : Screen
+    data class MediaViewer(
+        val path: String,
+        val backTo: String,
+    ) : Screen
+
     /** Choose voice or video before calling [chat]. */
-    data class CallType(val chat: String) : Screen
+    data class CallType(
+        val chat: String,
+    ) : Screen
+
     /** Confirm placing a voice or video call to [chat]. */
-    data class CallConfirm(val chat: String, val video: Boolean) : Screen
+    data class CallConfirm(
+        val chat: String,
+        val video: Boolean,
+    ) : Screen
 }
 
 /** Minimal back stack. Keeps [MessageStore.openChat] in sync so open threads stay quiet. */
@@ -48,11 +77,12 @@ object Nav {
 
     private fun sync() {
         val t = stack.value.lastOrNull { it is Screen.Thread || it is Screen.Composer }
-        val chat = when (t) {
-            is Screen.Thread -> t.chat
-            is Screen.Composer -> t.chat
-            else -> null
-        }
+        val chat =
+            when (t) {
+                is Screen.Thread -> t.chat
+                is Screen.Composer -> t.chat
+                else -> null
+            }
         MessageStore.openChat.value = chat
         chat?.let { MessageStore.markRead(it) }
     }

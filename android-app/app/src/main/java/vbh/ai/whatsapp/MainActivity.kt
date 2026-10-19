@@ -29,15 +29,17 @@ import com.thelightphone.sdk.ui.LocalHapticsEnabled
 class MainActivity : ComponentActivity() {
     private var demo: String? = null
     private var pendingCamera: ((Boolean) -> Unit)? = null
-    private val cameraLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        pendingCamera?.invoke(granted)
-        pendingCamera = null
-    }
+    private val cameraLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            pendingCamera?.invoke(granted)
+            pendingCamera = null
+        }
     private var pendingMedia: ((android.net.Uri?) -> Unit)? = null
-    private val mediaLauncher = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        pendingMedia?.invoke(uri)
-        pendingMedia = null
-    }
+    private val mediaLauncher =
+        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            pendingMedia?.invoke(uri)
+            pendingMedia = null
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,8 +54,12 @@ class MainActivity : ComponentActivity() {
             }
         }
         CameraGate.request = { block ->
-            if (checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) block(true)
-            else { pendingCamera = block; cameraLauncher.launch(Manifest.permission.CAMERA) }
+            if (checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                block(true)
+            } else {
+                pendingCamera = block
+                cameraLauncher.launch(Manifest.permission.CAMERA)
+            }
         }
         demo = Demo.requested(this, intent)
         demo?.let { Demo.apply(this, it) }
@@ -76,14 +82,16 @@ class MainActivity : ComponentActivity() {
 
     @androidx.compose.runtime.Composable
     private fun Root() {
-        val perms = buildList {
-            add(Manifest.permission.RECORD_AUDIO)
-            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
-        }.toTypedArray()
+        val perms =
+            buildList {
+                add(Manifest.permission.RECORD_AUDIO)
+                if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+            }.toTypedArray()
         var denied by remember { mutableStateOf(false) }
-        val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
-            if (r[Manifest.permission.RECORD_AUDIO] == true) startCore() else denied = true
-        }
+        val launcher =
+            rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+                if (r[Manifest.permission.RECORD_AUDIO] == true) startCore() else denied = true
+            }
         LaunchedEffect(Unit) { if (demo == null) launcher.launch(perms) }
 
         val qr by WaState.qr.collectAsState()
@@ -100,28 +108,66 @@ class MainActivity : ComponentActivity() {
         Box(Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
             val c = call
             when {
-                denied -> StatusText("Microphone access is needed for calls. Allow it in the app's permissions.")
-                c != null && c.incoming && c.phase < 3 -> IncomingCallScreen(c, callTitle(c, all).also { names; phones })
-                c != null && c.video && (c.localVideo || c.remoteVideo) -> VideoCallScreen(c, callTitle(c, all).also { names; phones })
-                c != null -> InCallScreen(c, callTitle(c, all).also { names; phones })
-                qr != null -> PairingScreen(qr!!)
-                else -> when (val s = stack.last()) {
-                    Screen.Home -> HomeScreen()
-                    is Screen.Thread -> ThreadScreen(s.chat)
-                    is Screen.Composer -> ComposerScreen(s.chat)
-                    is Screen.Contacts -> ContactsScreen(s.purpose)
-                    is Screen.Number -> NumberScreen(s.purpose)
-                    Screen.Settings -> SettingsScreen()
-                    is Screen.CallType -> CallTypeScreen(s.chat)
-                    is Screen.MediaViewer -> MediaViewerScreen(s.path, s.backTo)
-                    is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
+                denied -> {
+                    StatusText("Microphone access is needed for calls. Allow it in the app's permissions.")
+                }
+
+                c != null && c.incoming && c.phase < 3 -> {
+                    IncomingCallScreen(
+                        c,
+                        callTitle(c, all).also {
+                            names
+                            phones
+                        },
+                    )
+                }
+
+                c != null && c.video && (c.localVideo || c.remoteVideo) -> {
+                    VideoCallScreen(
+                        c,
+                        callTitle(c, all).also {
+                            names
+                            phones
+                        },
+                    )
+                }
+
+                c != null -> {
+                    InCallScreen(
+                        c,
+                        callTitle(c, all).also {
+                            names
+                            phones
+                        },
+                    )
+                }
+
+                qr != null -> {
+                    PairingScreen(qr!!)
+                }
+
+                else -> {
+                    when (val s = stack.last()) {
+                        Screen.Home -> HomeScreen()
+                        is Screen.Thread -> ThreadScreen(s.chat)
+                        is Screen.Composer -> ComposerScreen(s.chat)
+                        is Screen.Contacts -> ContactsScreen(s.purpose)
+                        is Screen.Number -> NumberScreen(s.purpose)
+                        Screen.Settings -> SettingsScreen()
+                        is Screen.CallType -> CallTypeScreen(s.chat)
+                        is Screen.MediaViewer -> MediaViewerScreen(s.path, s.backTo)
+                        is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
+                    }
                 }
             }
         }
     }
 
     /** Name or number for the caller; never a raw LID. */
-    private fun callTitle(c: CallUi, all: List<Msg>): String {
+    private fun callTitle(
+        c: CallUi,
+        all: List<Msg>,
+    ): String {
         val peer = if (c.peer.contains("@")) normalizeJid(c.peer) else "${c.peer.removePrefix("+")}@s.whatsapp.net"
         return MessageStore.title(peer, all)
     }

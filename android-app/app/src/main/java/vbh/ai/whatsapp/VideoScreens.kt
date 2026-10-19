@@ -40,7 +40,10 @@ import kotlinx.coroutines.delay
  * (media is the one place colour is allowed); our own preview sits inset in a corner.
  */
 @Composable
-fun VideoCallScreen(call: CallUi, title: String) {
+fun VideoCallScreen(
+    call: CallUi,
+    title: String,
+) {
     val now = remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(call.connectedAt) {
         while (call.connectedAt != 0L) {
@@ -60,8 +63,12 @@ fun VideoCallScreen(call: CallUi, title: String) {
             RotatedVideo(
                 // Their packets carry a counter-clockwise turn (WhatsApp's convention, tested);
                 // we draw with clockwise turns.
-                frameW = w, frameH = h, quarterTurns = (4 - call.remoteOrientation) % 4, mirror = false,
-                boxW = maxWidth, boxH = maxHeight,
+                frameW = w,
+                frameH = h,
+                quarterTurns = (4 - call.remoteOrientation) % 4,
+                mirror = false,
+                boxW = maxWidth,
+                boxH = maxHeight,
                 modifier = Modifier.align(Alignment.Center),
                 onSurface = { WaCore.video.setRemoteSurface(it) },
             )
@@ -79,9 +86,12 @@ fun VideoCallScreen(call: CallUi, title: String) {
                 val ph = pw * 4 / 3
                 Box(Modifier.align(Alignment.BottomEnd).padding(1f.gridUnitsAsDp()).size(pw, ph)) {
                     RotatedVideo(
-                        frameW = VideoEngine.HEIGHT, frameH = VideoEngine.WIDTH,
-                        quarterTurns = 0, mirror = false,
-                        boxW = pw, boxH = ph,
+                        frameW = VideoEngine.HEIGHT,
+                        frameH = VideoEngine.WIDTH,
+                        quarterTurns = 0,
+                        mirror = false,
+                        boxW = pw,
+                        boxH = ph,
                         modifier = Modifier.align(Alignment.Center),
                         onSurface = { s -> if (s != null) WaCore.startCamera(s) else WaCore.stopCamera() },
                         bufferSize = VideoEngine.WIDTH to VideoEngine.HEIGHT,
@@ -91,27 +101,43 @@ fun VideoCallScreen(call: CallUi, title: String) {
         }
         LightBottomBar(
             modifier = Modifier.navigationBarsPadding(),
-            items = listOf(
-                if (call.muted) bar(LightIcons.MUTE, "Unmute microphone") { WaCore.setMuted(false) }
-                else bar(LightIcons.MICROPHONE, "Mute microphone") { WaCore.setMuted(true) },
-                if (call.speaker) bar(LightIcons.SPEAKER_ON, "Switch to earpiece") { WaCore.setSpeaker(false) }
-                else bar(LightIcons.SPEAKER_MUTED, "Switch to speaker") { WaCore.setSpeaker(true) },
-                if (call.localVideo) bar(LightIcons.CAMERA, "Turn camera off") { WaCore.stopVideo() }
-                else bar(LightIcons.CAMERA, "Turn camera on") { CameraGate.withCamera { ok -> if (ok) WaCore.startVideo() } },
-                // Front / rear switch, only while our camera is on (5 icons is the bar's limit).
-                if (call.localVideo) {
-                    bar(LightIcons.ROTATE, if (call.frontCamera) "Switch to rear camera" else "Switch to front camera") { WaCore.switchCamera() }
-                } else {
-                    null
-                },
-                bar(LightIcons.DENY, "End call") { WaCore.hangup() },
-            ).filterNotNull(),
+            items =
+                listOf(
+                    if (call.muted) {
+                        bar(LightIcons.MUTE, "Unmute microphone") { WaCore.setMuted(false) }
+                    } else {
+                        bar(LightIcons.MICROPHONE, "Mute microphone") { WaCore.setMuted(true) }
+                    },
+                    if (call.speaker) {
+                        bar(LightIcons.SPEAKER_ON, "Switch to earpiece") { WaCore.setSpeaker(false) }
+                    } else {
+                        bar(LightIcons.SPEAKER_MUTED, "Switch to speaker") { WaCore.setSpeaker(true) }
+                    },
+                    if (call.localVideo) {
+                        bar(LightIcons.CAMERA, "Turn camera off") { WaCore.stopVideo() }
+                    } else {
+                        bar(LightIcons.CAMERA, "Turn camera on") { CameraGate.withCamera { ok -> if (ok) WaCore.startVideo() } }
+                    },
+                    // Front / rear switch, only while our camera is on (5 icons is the bar's limit).
+                    if (call.localVideo) {
+                        bar(
+                            LightIcons.ROTATE,
+                            if (call.frontCamera) "Switch to rear camera" else "Switch to front camera",
+                        ) { WaCore.switchCamera() }
+                    } else {
+                        null
+                    },
+                    bar(LightIcons.DENY, "End call") { WaCore.hangup() },
+                ).filterNotNull(),
         )
     }
 }
 
-private fun bar(icon: com.thelightphone.sdk.ui.LightIconConfiguration, description: String, onClick: () -> Unit) =
-    LightBarButton.LightIcon(icon = icon, onClick = onClick, contentDescription = description)
+private fun bar(
+    icon: com.thelightphone.sdk.ui.LightIconConfiguration,
+    description: String,
+    onClick: () -> Unit,
+) = LightBarButton.LightIcon(icon = icon, onClick = onClick, contentDescription = description)
 
 /**
  * A TextureView showing landscape frames rotated upright and scaled to fit [boxW] x [boxH].
@@ -140,27 +166,42 @@ private fun RotatedVideo(
     AndroidView(
         factory = { ctx ->
             TextureView(ctx).apply {
-                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                    var surface: Surface? = null
-                    override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                        bufferSize?.let { (bw, bh) -> st.setDefaultBufferSize(bw, bh) }
-                        surface = Surface(st).also(onSurface)
+                surfaceTextureListener =
+                    object : TextureView.SurfaceTextureListener {
+                        var surface: Surface? = null
+
+                        override fun onSurfaceTextureAvailable(
+                            st: SurfaceTexture,
+                            w: Int,
+                            h: Int,
+                        ) {
+                            bufferSize?.let { (bw, bh) -> st.setDefaultBufferSize(bw, bh) }
+                            surface = Surface(st).also(onSurface)
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(
+                            st: SurfaceTexture,
+                            w: Int,
+                            h: Int,
+                        ) {}
+
+                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                            onSurface(null)
+                            surface?.release()
+                            surface = null
+                            return true
+                        }
+
+                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
                     }
-                    override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
-                    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                        onSurface(null)
-                        surface?.release(); surface = null
-                        return true
-                    }
-                    override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
-                }
             }
         },
-        modifier = modifier
-            .requiredSize(viewW, viewH)
-            .graphicsLayer {
-                rotationZ = quarterTurns * 90f
-                if (mirror) scaleX = -1f
-            },
+        modifier =
+            modifier
+                .requiredSize(viewW, viewH)
+                .graphicsLayer {
+                    rotationZ = quarterTurns * 90f
+                    if (mirror) scaleX = -1f
+                },
     )
 }

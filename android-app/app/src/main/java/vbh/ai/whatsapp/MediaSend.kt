@@ -27,19 +27,24 @@ object MediaSend {
      * Reads a picked photo or video. Photos are re-encoded as JPEG (max 1600 px, upright: the
      * decoder applies EXIF rotation) since WhatsApp expects JPEG; videos must already be MP4.
      */
-    fun prepare(context: Context, uri: Uri): PreparedMedia {
+    fun prepare(
+        context: Context,
+        uri: Uri,
+    ): PreparedMedia {
         val cr = context.contentResolver
         val type = cr.getType(uri).orEmpty()
         return when {
             type.startsWith("image/") -> {
-                val bmp = ImageDecoder.decodeBitmap(ImageDecoder.createSource(cr, uri)) { decoder, info, _ ->
-                    val (w, h) = info.size.width to info.size.height
-                    val scale = minOf(1f, MAX_IMAGE_SIDE.toFloat() / maxOf(w, h))
-                    decoder.setTargetSize((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1))
-                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                }
+                val bmp =
+                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(cr, uri)) { decoder, info, _ ->
+                        val (w, h) = info.size.width to info.size.height
+                        val scale = minOf(1f, MAX_IMAGE_SIDE.toFloat() / maxOf(w, h))
+                        decoder.setTargetSize((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1))
+                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    }
                 PreparedMedia("image", jpeg(bmp, 82), "image/jpeg", bmp.width, bmp.height, 0, thumbnail(bmp))
             }
+
             type.startsWith("video/") -> {
                 if (type != "video/mp4") error("Only MP4 videos can be sent")
                 val size = cr.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
@@ -51,24 +56,47 @@ object MediaSend {
                     val rot = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
                     var w = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
                     var h = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
-                    if (rot % 180 != 0) { val t = w; w = h; h = t }
+                    if (rot % 180 != 0) {
+                        val t = w
+                        w = h
+                        h = t
+                    }
                     val ms = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
                     val frame = mmr.getFrameAtTime(0)
-                    PreparedMedia("video", data, "video/mp4", w, h, ((ms + 500) / 1000).toInt(), frame?.let { thumbnail(it) } ?: ByteArray(0))
+                    PreparedMedia(
+                        "video",
+                        data,
+                        "video/mp4",
+                        w,
+                        h,
+                        ((ms + 500) / 1000).toInt(),
+                        frame?.let { thumbnail(it) } ?: ByteArray(0),
+                    )
                 } finally {
                     mmr.release()
                 }
             }
-            else -> error("Only photos and videos can be sent")
+
+            else -> {
+                error("Only photos and videos can be sent")
+            }
         }
     }
 
-    private fun jpeg(bmp: Bitmap, quality: Int): ByteArray =
-        ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, quality, it) }.toByteArray()
+    private fun jpeg(
+        bmp: Bitmap,
+        quality: Int,
+    ): ByteArray = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, quality, it) }.toByteArray()
 
     private fun thumbnail(bmp: Bitmap): ByteArray {
         val scale = THUMB_SIDE.toFloat() / maxOf(bmp.width, bmp.height)
-        val t = Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt().coerceAtLeast(1), (bmp.height * scale).toInt().coerceAtLeast(1), true)
+        val t =
+            Bitmap.createScaledBitmap(
+                bmp,
+                (bmp.width * scale).toInt().coerceAtLeast(1),
+                (bmp.height * scale).toInt().coerceAtLeast(1),
+                true,
+            )
         return jpeg(t, 60)
     }
 }

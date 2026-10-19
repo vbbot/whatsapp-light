@@ -12,9 +12,10 @@ object AppSettings {
     @Synchronized
     fun init(context: Context) {
         if (prefs != null) return
-        prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE).also {
-            seenStatus.value = it.getBoolean("seenStatus", true)
-        }
+        prefs =
+            context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE).also {
+                seenStatus.value = it.getBoolean("seenStatus", true)
+            }
     }
 
     fun setSeenStatus(on: Boolean) {

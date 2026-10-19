@@ -3,7 +3,11 @@ package vbh.ai.whatsapp
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** A person to message or call. [chat] is the canonical chat JID (LID when known). */
-data class Contact(val chat: String, val name: String, val phone: String)
+data class Contact(
+    val chat: String,
+    val name: String,
+    val phone: String,
+)
 
 data class CallUi(
     val id: String,
@@ -27,14 +31,15 @@ data class CallUi(
     val frontCamera: Boolean = true,
 ) {
     val phaseLabel: String
-        get() = when (phase) {
-            1 -> "calling…"
-            2 -> if (incoming) "incoming" else "ringing…"
-            3 -> "connecting…"
-            5 -> "call ended"
-            6 -> "waiting room"
-            else -> "…"
-        }
+        get() =
+            when (phase) {
+                1 -> "calling…"
+                2 -> if (incoming) "incoming" else "ringing…"
+                3 -> "connecting…"
+                5 -> "call ended"
+                6 -> "waiting room"
+                else -> "…"
+            }
 }
 
 /** Process-wide UI state, written by [WaCore], observed by Compose. */
@@ -47,6 +52,7 @@ object WaState {
     val contactsLoaded = MutableStateFlow(false)
     val call = MutableStateFlow<CallUi?>(null)
     val error = MutableStateFlow<String?>(null)
+
     /** Decoded size of the peer's video, once known. */
     val remoteVideoSize = MutableStateFlow<Pair<Int, Int>?>(null)
     val logs = MutableStateFlow<List<String>>(emptyList())

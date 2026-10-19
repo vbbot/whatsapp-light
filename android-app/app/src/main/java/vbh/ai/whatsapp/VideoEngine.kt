@@ -2,12 +2,12 @@ package vbh.ai.whatsapp
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
-import android.graphics.ImageFormat
 import android.media.Image
 import android.media.ImageReader
 import android.media.MediaCodec
@@ -28,8 +28,9 @@ import vbh.ai.whatsapp.walib.VideoRenderer
  * - receive: Annex-B access units from Go ([frame]) -> hardware decoder -> remote surface.
  * Matches what meowcaller's reference browser client sends.
  */
-class VideoEngine(private val context: Context) : VideoRenderer {
-
+class VideoEngine(
+    private val context: Context,
+) : VideoRenderer {
     /** Fired (from a codec thread) the first time a frame of theirs is drawn after a (re)start. */
     @Volatile var onRemoteFrameShown: (() -> Unit)? = null
 
@@ -58,9 +59,13 @@ class VideoEngine(private val context: Context) : VideoRenderer {
     private var reader: ImageReader? = null
     private var encoder: MediaCodec? = null
     private var drainThread: Thread? = null
+
     @Volatile private var encoding = false
+
     @Volatile private var codecConfig: ByteArray? = null
+
     @Volatile private var loggedKeyframe = false
+
     @Volatile private var loggedNoInputImage = false
 
     // Stats for the log.
@@ -83,15 +88,22 @@ class VideoEngine(private val context: Context) : VideoRenderer {
 
     @SuppressLint("MissingPermission")
     @Synchronized
-    fun startCamera(preview: Surface?, send: (ByteArray, Long) -> Unit) {
+    fun startCamera(
+        preview: Surface?,
+        send: (ByteArray, Long) -> Unit,
+    ) {
         stopCamera()
         this.send = send
         lastPtsUs = -1L
         val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         val wanted = if (useFrontCamera) CameraCharacteristics.LENS_FACING_FRONT else CameraCharacteristics.LENS_FACING_BACK
-        val id = cm.cameraIdList.firstOrNull {
-            cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == wanted
-        } ?: cm.cameraIdList.firstOrNull() ?: run { WaState.log("video: no camera"); return }
+        val id =
+            cm.cameraIdList.firstOrNull {
+                cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == wanted
+            } ?: cm.cameraIdList.firstOrNull() ?: run {
+                WaState.log("video: no camera")
+                return
+            }
         val chars = cm.getCameraCharacteristics(id)
         sensorQuarterTurns = ((chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 270) / 90) % 4
         captureSize = chooseSize(chars)
@@ -111,40 +123,64 @@ class VideoEngine(private val context: Context) : VideoRenderer {
         val r = ImageReader.newInstance(captureSize.width, captureSize.height, ImageFormat.YUV_420_888, 3)
         r.setOnImageAvailableListener({ rd ->
             val img = runCatching { rd.acquireLatestImage() }.getOrNull() ?: return@setOnImageAvailableListener
-            try { feed(img) } finally { img.close() }
+            try {
+                feed(img)
+            } finally {
+                img.close()
+            }
         }, handler)
         reader = r
 
-        cm.openCamera(id, object : CameraDevice.StateCallback() {
-            override fun onOpened(device: CameraDevice) {
-                camera = device
-                val targets = listOfNotNull(r.surface, preview)
-                @Suppress("DEPRECATION")
-                device.createCaptureSession(targets, object : CameraCaptureSession.StateCallback() {
-                    override fun onConfigured(s: CameraCaptureSession) {
-                        session = s
-                        val req = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                            targets.forEach { addTarget(it) }
-                            fps?.let { set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
-                            set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
-                        }
-                        runCatching { s.setRepeatingRequest(req.build(), null, handler) }
-                            .onFailure { WaState.log("video: capture failed: ${it.message}") }
-                    }
+        cm.openCamera(
+            id,
+            object : CameraDevice.StateCallback() {
+                override fun onOpened(device: CameraDevice) {
+                    camera = device
+                    val targets = listOfNotNull(r.surface, preview)
+                    @Suppress("DEPRECATION")
+                    device.createCaptureSession(
+                        targets,
+                        object : CameraCaptureSession.StateCallback() {
+                            override fun onConfigured(s: CameraCaptureSession) {
+                                session = s
+                                val req =
+                                    device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                                        targets.forEach { addTarget(it) }
+                                        fps?.let { set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
+                                        set(
+                                            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                                            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+                                        )
+                                    }
+                                runCatching { s.setRepeatingRequest(req.build(), null, handler) }
+                                    .onFailure { WaState.log("video: capture failed: ${it.message}") }
+                            }
 
-                    override fun onConfigureFailed(s: CameraCaptureSession) {
-                        WaState.log("video: camera session failed")
-                    }
-                }, handler)
-            }
+                            override fun onConfigureFailed(s: CameraCaptureSession) {
+                                WaState.log("video: camera session failed")
+                            }
+                        },
+                        handler,
+                    )
+                }
 
-            override fun onDisconnected(device: CameraDevice) { device.close() }
-            override fun onError(device: CameraDevice, error: Int) {
-                WaState.log("video: camera error $error")
-                device.close()
-            }
-        }, handler)
-        WaState.log("video: ${if (useFrontCamera) "front" else "rear"} camera ${captureSize.width}x${captureSize.height} @ $fps, rotate ${sensorQuarterTurns * 90}")
+                override fun onDisconnected(device: CameraDevice) {
+                    device.close()
+                }
+
+                override fun onError(
+                    device: CameraDevice,
+                    error: Int,
+                ) {
+                    WaState.log("video: camera error $error")
+                    device.close()
+                }
+            },
+            handler,
+        )
+        WaState.log(
+            "video: ${if (useFrontCamera) "front" else "rear"} camera ${captureSize.width}x${captureSize.height} @ $fps, rotate ${sensorQuarterTurns * 90}",
+        )
     }
 
     /** Copies one camera frame into the encoder; skipped if the encoder has no free input. */
@@ -152,11 +188,27 @@ class VideoEngine(private val context: Context) : VideoRenderer {
         val codec = encoder ?: return
         if (!encoding) return
         framesCaptured++
-        val idx = try { codec.dequeueInputBuffer(0) } catch (_: Exception) { return }
-        if (idx < 0) { framesSkipped++; return }
-        val dst = try { codec.getInputImage(idx) } catch (_: Exception) { null }
+        val idx =
+            try {
+                codec.dequeueInputBuffer(0)
+            } catch (_: Exception) {
+                return
+            }
+        if (idx < 0) {
+            framesSkipped++
+            return
+        }
+        val dst =
+            try {
+                codec.getInputImage(idx)
+            } catch (_: Exception) {
+                null
+            }
         if (dst == null) {
-            if (!loggedNoInputImage) { loggedNoInputImage = true; WaState.log("video: encoder gives no input image") }
+            if (!loggedNoInputImage) {
+                loggedNoInputImage = true
+                WaState.log("video: encoder gives no input image")
+            }
             codec.queueInputBuffer(idx, 0, 0, 0, 0)
             return
         }
@@ -170,7 +222,12 @@ class VideoEngine(private val context: Context) : VideoRenderer {
     }
 
     /** Copies a w x h plane between two images whose row/pixel strides may differ. */
-    private fun copyPlane(src: Image.Plane, dst: Image.Plane, w: Int, h: Int) {
+    private fun copyPlane(
+        src: Image.Plane,
+        dst: Image.Plane,
+        w: Int,
+        h: Int,
+    ) {
         val s = src.buffer
         val d = dst.buffer
         val sRow = src.rowStride
@@ -180,8 +237,10 @@ class VideoEngine(private val context: Context) : VideoRenderer {
         if (sPix == 1 && dPix == 1) {
             val row = ByteArray(w)
             for (y in 0 until h) {
-                s.position(y * sRow); s.get(row, 0, w)
-                d.position(y * dRow); d.put(row, 0, w)
+                s.position(y * sRow)
+                s.get(row, 0, w)
+                d.position(y * dRow)
+                d.put(row, 0, w)
             }
         } else {
             for (y in 0 until h) {
@@ -195,17 +254,28 @@ class VideoEngine(private val context: Context) : VideoRenderer {
     @Synchronized
     fun stopCamera() {
         encoding = false
-        runCatching { session?.close() }; session = null
-        runCatching { camera?.close() }; camera = null
-        cameraThread?.quitSafely(); cameraThread?.join(300); cameraThread = null
-        runCatching { reader?.close() }; reader = null
-        drainThread?.join(300); drainThread = null
-        runCatching { encoder?.stop() }; runCatching { encoder?.release() }; encoder = null
+        runCatching { session?.close() }
+        session = null
+        runCatching { camera?.close() }
+        camera = null
+        cameraThread?.quitSafely()
+        cameraThread?.join(300)
+        cameraThread = null
+        runCatching { reader?.close() }
+        reader = null
+        drainThread?.join(300)
+        drainThread = null
+        runCatching { encoder?.stop() }
+        runCatching { encoder?.release() }
+        encoder = null
         codecConfig = null
         loggedKeyframe = false
         loggedNoInputImage = false
-        framesCaptured = 0; framesSkipped = 0
-        latencySumUs = 0; latencyMaxUs = 0; latencyCount = 0
+        framesCaptured = 0
+        framesSkipped = 0
+        latencySumUs = 0
+        latencyMaxUs = 0
+        latencyCount = 0
         send = null
     }
 
@@ -220,28 +290,32 @@ class VideoEngine(private val context: Context) : VideoRenderer {
         // Optional keys, most expendable first: if the encoder rejects a configuration, the
         // first remaining option is dropped and we try again. Base keys are always set.
         val optional = mutableListOf("lowlatency", "prepend", "profile")
-        fun format(opts: List<String>) = MediaFormat.createVideoFormat(MIME, size.width, size.height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-            setInteger(MediaFormat.KEY_BIT_RATE, if (Experiments.br500) 500_000 else BITRATE)
-            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
-            // Keyframes every 2 s; the peer also asks for one (PLI) whenever it needs it.
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, if (Experiments.gop1) 1 else 2)
-            if ("lowlatency" in opts) {
-                setInteger(MediaFormat.KEY_LATENCY, 1)
-                setInteger("vendor.qti-ext-enc-low-latency.enable", 1)
-                setInteger(MediaFormat.KEY_PRIORITY, 0) // realtime
+
+        fun format(opts: List<String>) =
+            MediaFormat.createVideoFormat(MIME, size.width, size.height).apply {
+                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+                setInteger(MediaFormat.KEY_BIT_RATE, if (Experiments.br500) 500_000 else BITRATE)
+                setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
+                // Keyframes every 2 s; the peer also asks for one (PLI) whenever it needs it.
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, if (Experiments.gop1) 1 else 2)
+                if ("lowlatency" in opts) {
+                    setInteger(MediaFormat.KEY_LATENCY, 1)
+                    setInteger("vendor.qti-ext-enc-low-latency.enable", 1)
+                    setInteger(MediaFormat.KEY_PRIORITY, 0) // realtime
+                }
+                if ("prepend" in opts) setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
+                if ("profile" in opts) {
+                    setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileConstrainedBaseline)
+                    setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
+                }
             }
-            if ("prepend" in opts) setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
-            if ("profile" in opts) {
-                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileConstrainedBaseline)
-                setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
-            }
-        }
         val codec = MediaCodec.createEncoderByType(MIME)
         while (true) {
             try {
                 codec.configure(format(optional), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-                WaState.log("video: encoder ${codec.name} ${(if (Experiments.br500) 500_000 else BITRATE) / 1000} kbps, keyframe every ${if (Experiments.gop1) 1 else 2} s, options $optional")
+                WaState.log(
+                    "video: encoder ${codec.name} ${(if (Experiments.br500) 500_000 else BITRATE) / 1000} kbps, keyframe every ${if (Experiments.gop1) 1 else 2} s, options $optional",
+                )
                 break
             } catch (e: Exception) {
                 codec.reset()
@@ -261,11 +335,17 @@ class VideoEngine(private val context: Context) : VideoRenderer {
     private fun drain(codec: MediaCodec) {
         val info = MediaCodec.BufferInfo()
         while (encoding) {
-            val idx = try { codec.dequeueOutputBuffer(info, 10_000) } catch (_: Exception) { break }
+            val idx =
+                try {
+                    codec.dequeueOutputBuffer(info, 10_000)
+                } catch (_: Exception) {
+                    break
+                }
             if (idx < 0) continue
             val buf = codec.getOutputBuffer(idx)
             val bytes = ByteArray(info.size)
-            buf?.position(info.offset); buf?.get(bytes)
+            buf?.position(info.offset)
+            buf?.get(bytes)
             codec.releaseOutputBuffer(idx, false)
             if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                 codecConfig = bytes
@@ -284,17 +364,26 @@ class VideoEngine(private val context: Context) : VideoRenderer {
             // Sensor-to-encoded latency (pts is the camera's boot-clock timestamp).
             val latency = android.os.SystemClock.elapsedRealtimeNanos() / 1000 - pts
             if (latency in 0..5_000_000) {
-                latencySumUs += latency; latencyCount++
+                latencySumUs += latency
+                latencyCount++
                 if (latency > latencyMaxUs) latencyMaxUs = latency
                 if (latencyCount == 75) {
-                    WaState.log("video out: camera-to-send latency avg ${latencySumUs / latencyCount / 1000} ms, max ${latencyMaxUs / 1000} ms; frames captured $framesCaptured, skipped $framesSkipped")
-                    latencySumUs = 0; latencyMaxUs = 0; latencyCount = 0
+                    WaState.log(
+                        "video out: camera-to-send latency avg ${latencySumUs / latencyCount / 1000} ms, max ${latencyMaxUs / 1000} ms; frames captured $framesCaptured, skipped $framesSkipped",
+                    )
+                    latencySumUs = 0
+                    latencyMaxUs = 0
+                    latencyCount = 0
                 }
             }
             // Duration from the camera's own timestamps: a fixed 66 ms per frame drifts from the
             // real frame rate and the receiver's buffer (and delay) grows over the call.
-            val duration = if (Experiments.fixedDuration || lastPtsUs < 0 || pts <= lastPtsUs) 1_000_000L / FPS
-                else (pts - lastPtsUs).coerceAtMost(500_000L)
+            val duration =
+                if (Experiments.fixedDuration || lastPtsUs < 0 || pts <= lastPtsUs) {
+                    1_000_000L / FPS
+                } else {
+                    (pts - lastPtsUs).coerceAtMost(500_000L)
+                }
             lastPtsUs = pts
             runCatching { send?.invoke(au, duration) }
         }
@@ -321,6 +410,7 @@ class VideoEngine(private val context: Context) : VideoRenderer {
     private var remoteSurface: Surface? = null
     private var decoder: MediaCodec? = null
     private var decodeThread: Thread? = null
+
     @Volatile private var decoding = false
     private var pts = 0L
     private var shownSinceStart = 0
@@ -333,11 +423,14 @@ class VideoEngine(private val context: Context) : VideoRenderer {
         }
     }
 
-    fun releaseDecoder() = synchronized(decodeLock) {
-        releaseDecoderLocked()
-        if (framesIn > 0) WaState.log("video in: total received $framesIn, dropped $framesDropped, shown $framesShown")
-        framesIn = 0; framesDropped = 0; framesShown = 0
-    }
+    fun releaseDecoder() =
+        synchronized(decodeLock) {
+            releaseDecoderLocked()
+            if (framesIn > 0) WaState.log("video in: total received $framesIn, dropped $framesDropped, shown $framesShown")
+            framesIn = 0
+            framesDropped = 0
+            framesShown = 0
+        }
 
     /** Called from Go with one access unit of the peer's video. */
     override fun frame(accessUnit: ByteArray) {
@@ -358,8 +451,14 @@ class VideoEngine(private val context: Context) : VideoRenderer {
             val codec = decoder ?: return
             try {
                 val idx = codec.dequeueInputBuffer(20_000)
-                if (idx < 0) { framesDropped++; return } // decoder busy: drop rather than build latency
-                codec.getInputBuffer(idx)?.apply { clear(); put(accessUnit) }
+                if (idx < 0) {
+                    framesDropped++
+                    return
+                } // decoder busy: drop rather than build latency
+                codec.getInputBuffer(idx)?.apply {
+                    clear()
+                    put(accessUnit)
+                }
                 codec.queueInputBuffer(idx, 0, accessUnit.size, pts, 0)
                 pts += 1_000_000L / FPS
                 if (framesIn % 150 == 0) WaState.log("video in: received $framesIn, dropped $framesDropped, shown $framesShown")
@@ -378,33 +477,47 @@ class VideoEngine(private val context: Context) : VideoRenderer {
         decoding = true
         pts = 0
         shownSinceStart = 0
-        decodeThread = Thread({
-            val info = MediaCodec.BufferInfo()
-            while (decoding) {
-                val idx = try { codec.dequeueOutputBuffer(info, 10_000) } catch (_: Exception) { break }
-                when {
-                    idx >= 0 -> runCatching {
-                        codec.releaseOutputBuffer(idx, true)
-                        framesShown++
-                        if (shownSinceStart++ == 0) {
-                            WaState.log("video in: first frame shown")
-                            onRemoteFrameShown?.invoke()
+        decodeThread =
+            Thread({
+                val info = MediaCodec.BufferInfo()
+                while (decoding) {
+                    val idx =
+                        try {
+                            codec.dequeueOutputBuffer(info, 10_000)
+                        } catch (_: Exception) {
+                            break
+                        }
+                    when {
+                        idx >= 0 -> {
+                            runCatching {
+                                codec.releaseOutputBuffer(idx, true)
+                                framesShown++
+                                if (shownSinceStart++ == 0) {
+                                    WaState.log("video in: first frame shown")
+                                    onRemoteFrameShown?.invoke()
+                                }
+                            }
+                        }
+
+                        idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                            runCatching {
+                                val f = codec.outputFormat
+                                WaState.remoteVideoSize.value = f.getInteger(MediaFormat.KEY_WIDTH) to f.getInteger(MediaFormat.KEY_HEIGHT)
+                            }
                         }
                     }
-                    idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> runCatching {
-                        val f = codec.outputFormat
-                        WaState.remoteVideoSize.value = f.getInteger(MediaFormat.KEY_WIDTH) to f.getInteger(MediaFormat.KEY_HEIGHT)
-                    }
                 }
-            }
-        }, "wa-decode").also { it.start() }
+            }, "wa-decode").also { it.start() }
         WaState.log("video: decoder started")
     }
 
     private fun releaseDecoderLocked() {
         decoding = false
-        decodeThread?.join(300); decodeThread = null
-        runCatching { decoder?.stop() }; runCatching { decoder?.release() }; decoder = null
+        decodeThread?.join(300)
+        decodeThread = null
+        runCatching { decoder?.stop() }
+        runCatching { decoder?.release() }
+        decoder = null
     }
 
     companion object {
@@ -412,6 +525,7 @@ class VideoEngine(private val context: Context) : VideoRenderer {
         const val WIDTH = 640
         const val HEIGHT = 480
         const val FPS = 15
+
         // ~800 kbps, variable: measured on a real call the path showed ~0% loss and ~10 ms
         // jitter, and 300 kbps constant-rate produced 2 KB keyframes (very blocky picture).
         private const val BITRATE = 800_000
@@ -424,11 +538,12 @@ class VideoEngine(private val context: Context) : VideoRenderer {
             var i = 0
             while (i + 3 < au.size) {
                 if (au[i].toInt() == 0 && au[i + 1].toInt() == 0) {
-                    val start = when {
-                        au[i + 2].toInt() == 1 -> i + 3
-                        au[i + 2].toInt() == 0 && au[i + 3].toInt() == 1 -> i + 4
-                        else -> -1
-                    }
+                    val start =
+                        when {
+                            au[i + 2].toInt() == 1 -> i + 3
+                            au[i + 2].toInt() == 0 && au[i + 3].toInt() == 1 -> i + 4
+                            else -> -1
+                        }
                     if (start in au.indices) {
                         out += au[start].toInt() and 0x1F
                         i = start

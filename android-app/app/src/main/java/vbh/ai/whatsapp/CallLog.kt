@@ -24,19 +24,22 @@ data class CallRecord(
 
     /** Lowercase subtitle for the call log row: what happened, and for how long. */
     val summary: String
-        get() = (if (video) "video · " else "") + when (outcome) {
-            Outcome.ANSWERED -> (if (incoming) "incoming" else "outgoing") + " · " + formatDuration(endedAt - answeredAt)
-            Outcome.MISSED -> "missed"
-            Outcome.DECLINED -> "declined"
-            Outcome.NO_ANSWER -> "no answer"
-            Outcome.ONGOING -> if (incoming) "incoming" else "outgoing"
-        }
+        get() =
+            (if (video) "video · " else "") +
+                when (outcome) {
+                    Outcome.ANSWERED -> (if (incoming) "incoming" else "outgoing") + " · " + formatDuration(endedAt - answeredAt)
+                    Outcome.MISSED -> "missed"
+                    Outcome.DECLINED -> "declined"
+                    Outcome.NO_ANSWER -> "no answer"
+                    Outcome.ONGOING -> if (incoming) "incoming" else "outgoing"
+                }
 }
 
 /** Call history recorded while the app is connected; newest first; persisted as JSON. */
 object CallLog {
     val calls = MutableStateFlow<List<CallRecord>>(emptyList())
     private var file: File? = null
+
     /** Calls the user declined, so the end event can tell "declined" from "missed". */
     private val declined = mutableSetOf<String>()
 
@@ -46,23 +49,34 @@ object CallLog {
         file = File(context.filesDir, "calls.json")
         runCatching {
             val arr = JSONArray(file!!.readText())
-            calls.value = (0 until arr.length()).map {
-                arr.getJSONObject(it).let { o ->
-                    CallRecord(
-                        o.getString("id"), o.getString("peer"), o.getBoolean("incoming"), o.getLong("startedAt"),
-                        o.optLong("answeredAt"), o.optLong("endedAt"),
-                        runCatching { CallRecord.Outcome.valueOf(o.getString("outcome")) }.getOrDefault(CallRecord.Outcome.MISSED),
-                        video = o.optBoolean("video", false),
-                    )
+            calls.value =
+                (0 until arr.length()).map {
+                    arr.getJSONObject(it).let { o ->
+                        CallRecord(
+                            o.getString("id"),
+                            o.getString("peer"),
+                            o.getBoolean("incoming"),
+                            o.getLong("startedAt"),
+                            o.optLong("answeredAt"),
+                            o.optLong("endedAt"),
+                            runCatching { CallRecord.Outcome.valueOf(o.getString("outcome")) }.getOrDefault(CallRecord.Outcome.MISSED),
+                            video = o.optBoolean("video", false),
+                        )
+                    }
                 }
-            }
         }
     }
 
     @Synchronized
-    fun start(id: String, peer: String, incoming: Boolean, video: Boolean = false) {
+    fun start(
+        id: String,
+        peer: String,
+        incoming: Boolean,
+        video: Boolean = false,
+    ) {
         if (calls.value.any { it.id == id }) return
-        calls.value = (listOf(CallRecord(id, normalizeJid(peer), incoming, System.currentTimeMillis(), video = video)) + calls.value).take(500)
+        calls.value =
+            (listOf(CallRecord(id, normalizeJid(peer), incoming, System.currentTimeMillis(), video = video)) + calls.value).take(500)
         save()
     }
 
@@ -73,20 +87,27 @@ object CallLog {
     fun markVideo(id: String) = update(id) { if (it.video) it else it.copy(video = true) }
 
     @Synchronized
-    fun markDeclined(id: String) { declined += id }
-
-    @Synchronized
-    fun ended(id: String) = update(id) {
-        val outcome = when {
-            it.answeredAt != 0L -> CallRecord.Outcome.ANSWERED
-            id in declined -> CallRecord.Outcome.DECLINED
-            it.incoming -> CallRecord.Outcome.MISSED
-            else -> CallRecord.Outcome.NO_ANSWER
-        }
-        it.copy(endedAt = System.currentTimeMillis(), outcome = outcome)
+    fun markDeclined(id: String) {
+        declined += id
     }
 
-    private fun update(id: String, f: (CallRecord) -> CallRecord) {
+    @Synchronized
+    fun ended(id: String) =
+        update(id) {
+            val outcome =
+                when {
+                    it.answeredAt != 0L -> CallRecord.Outcome.ANSWERED
+                    id in declined -> CallRecord.Outcome.DECLINED
+                    it.incoming -> CallRecord.Outcome.MISSED
+                    else -> CallRecord.Outcome.NO_ANSWER
+                }
+            it.copy(endedAt = System.currentTimeMillis(), outcome = outcome)
+        }
+
+    private fun update(
+        id: String,
+        f: (CallRecord) -> CallRecord,
+    ) {
         calls.value = calls.value.map { if (it.id == id) f(it) else it }
         save()
     }
@@ -95,9 +116,17 @@ object CallLog {
         val f = file ?: return
         val arr = JSONArray()
         calls.value.forEach {
-            arr.put(JSONObject().put("id", it.id).put("peer", it.peer).put("incoming", it.incoming)
-                .put("startedAt", it.startedAt).put("answeredAt", it.answeredAt).put("endedAt", it.endedAt)
-                .put("outcome", it.outcome.name).put("video", it.video))
+            arr.put(
+                JSONObject()
+                    .put("id", it.id)
+                    .put("peer", it.peer)
+                    .put("incoming", it.incoming)
+                    .put("startedAt", it.startedAt)
+                    .put("answeredAt", it.answeredAt)
+                    .put("endedAt", it.endedAt)
+                    .put("outcome", it.outcome.name)
+                    .put("video", it.video),
+            )
         }
         runCatching { f.writeText(arr.toString()) }
     }

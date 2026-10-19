@@ -16,15 +16,30 @@ object Experiments {
         private set
 
     fun load(context: Context) {
-        flags = context.getSharedPreferences("experiments", Context.MODE_PRIVATE)
-            .getStringSet("flags", emptySet()).orEmpty()
+        flags =
+            context
+                .getSharedPreferences("experiments", Context.MODE_PRIVATE)
+                .getStringSet("flags", emptySet())
+                .orEmpty()
     }
 
-    fun applyIntent(context: Context, intent: Intent?) {
+    fun applyIntent(
+        context: Context,
+        intent: Intent?,
+    ) {
         if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
         val raw = intent?.getStringExtra("exp") ?: return
-        val set = raw.split(',').map { it.trim() }.filter { it.isNotEmpty() && it != "none" }.toSet()
-        context.getSharedPreferences("experiments", Context.MODE_PRIVATE).edit().putStringSet("flags", set).apply()
+        val set =
+            raw
+                .split(',')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && it != "none" }
+                .toSet()
+        context
+            .getSharedPreferences("experiments", Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet("flags", set)
+            .apply()
         flags = set
         WaState.log("experiments set: ${if (set.isEmpty()) "none" else set.sorted().joinToString(",")}")
     }
@@ -33,12 +48,16 @@ object Experiments {
 
     /** Send orientation 0 (frames arrive sideways) instead of the rotation they need. */
     val cvo0 get() = on("cvo0")
+
     /** Fixed 1/15 s per frame (like the browser) instead of camera-measured durations. */
     val fixedDuration get() = on("fixed")
+
     /** A keyframe every second (like the browser) instead of every 2 s. */
     val gop1 get() = on("gop1")
+
     /** 500 kbps (like the browser) instead of 800 kbps. */
     val br500 get() = on("br500")
+
     /** Send no microphone audio, to test whether the receiver delays video to match audio. */
     val noAudio get() = on("noaudio")
 }

@@ -18,13 +18,17 @@ import vbh.ai.whatsapp.walib.Speaker
  * Bridges Android audio to walib: 16 kHz mono s16le in both directions.
  * Mic -> [Client.pushMic]; peer audio arrives via [Speaker.write] -> AudioTrack.
  */
-class AudioEngine(context: Context) : Speaker {
+class AudioEngine(
+    context: Context,
+) : Speaker {
     private val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var record: AudioRecord? = null
     private var track: AudioTrack? = null
     private var thread: Thread? = null
     private var focus: AudioFocusRequest? = null
+
     @Volatile private var running = false
+
     @Volatile var muted = false
 
     @SuppressLint("MissingPermission")
@@ -32,46 +36,65 @@ class AudioEngine(context: Context) : Speaker {
     fun start(client: Client) {
         if (running) return
         am.mode = AudioManager.MODE_IN_COMMUNICATION
-        focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
-            ).build().also { am.requestAudioFocus(it) }
+        focus =
+            AudioFocusRequest
+                .Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(
+                    AudioAttributes
+                        .Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                ).build()
+                .also { am.requestAudioFocus(it) }
 
         val fmtIn = AudioFormat.ENCODING_PCM_16BIT
         val minRec = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, fmtIn)
-        val rec = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION, RATE,
-            AudioFormat.CHANNEL_IN_MONO, fmtIn, maxOf(minRec * 2, CHUNK * 4)
-        )
+        val rec =
+            AudioRecord(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                fmtIn,
+                maxOf(minRec * 2, CHUNK * 4),
+            )
         if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId)?.enabled = true
         if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId)?.enabled = true
 
         val minTrk = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_MONO, fmtIn)
-        val trk = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder().setSampleRate(RATE).setEncoding(fmtIn)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()
-            )
-            .setBufferSizeInBytes(maxOf(minTrk * 4, CHUNK * 16))
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+        val trk =
+            AudioTrack
+                .Builder()
+                .setAudioAttributes(
+                    AudioAttributes
+                        .Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                ).setAudioFormat(
+                    AudioFormat
+                        .Builder()
+                        .setSampleRate(RATE)
+                        .setEncoding(fmtIn)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build(),
+                ).setBufferSizeInBytes(maxOf(minTrk * 4, CHUNK * 16))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
 
-        record = rec; track = trk; running = true
-        trk.play(); rec.startRecording()
-        thread = Thread({
-            val buf = ByteArray(CHUNK)
-            while (running) {
-                val n = rec.read(buf, 0, buf.size)
-                if (n > 0 && !muted) client.pushMic(buf.copyOf(n))
-            }
-        }, "wa-mic").also { it.start() }
+        record = rec
+        track = trk
+        running = true
+        trk.play()
+        rec.startRecording()
+        thread =
+            Thread({
+                val buf = ByteArray(CHUNK)
+                while (running) {
+                    val n = rec.read(buf, 0, buf.size)
+                    if (n > 0 && !muted) client.pushMic(buf.copyOf(n))
+                }
+            }, "wa-mic").also { it.start() }
         WaState.log("audio started")
     }
 
@@ -79,10 +102,20 @@ class AudioEngine(context: Context) : Speaker {
     fun stop() {
         if (!running) return
         running = false
-        thread?.join(500); thread = null
-        record?.runCatching { stop(); release() }; record = null
-        track?.runCatching { stop(); release() }; track = null
-        focus?.let { am.abandonAudioFocusRequest(it) }; focus = null
+        thread?.join(500)
+        thread = null
+        record?.runCatching {
+            stop()
+            release()
+        }
+        record = null
+        track?.runCatching {
+            stop()
+            release()
+        }
+        track = null
+        focus?.let { am.abandonAudioFocusRequest(it) }
+        focus = null
         am.isSpeakerphoneOn = false
         am.mode = AudioManager.MODE_NORMAL
         WaState.log("audio stopped")

@@ -37,13 +37,14 @@ fun formatMessageTime(ts: Long): String {
     val today = LocalDate.now(zone)
     val date = dt.toLocalDate()
     val time = dt.toLocalTime().format(MESSAGE_TIME)
-    val tag = when {
-        date == today -> null
-        date == today.minusDays(1) -> "Yesterday"
-        date.isAfter(today.minusDays(7)) -> date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.US)
-        date.year == today.year -> date.format(MONTH_DAY)
-        else -> date.format(MONTH_DAY_YEAR)
-    }
+    val tag =
+        when {
+            date == today -> null
+            date == today.minusDays(1) -> "Yesterday"
+            date.isAfter(today.minusDays(7)) -> date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.US)
+            date.year == today.year -> date.format(MONTH_DAY)
+            else -> date.format(MONTH_DAY_YEAR)
+        }
     return if (tag == null) time else "$tag $time"
 }
 
