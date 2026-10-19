@@ -37,10 +37,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -56,11 +62,13 @@ import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LightTopBar
 import com.thelightphone.sdk.ui.LightTopBarCenter
 import com.thelightphone.sdk.ui.defaultKeyboardOptions
+import com.thelightphone.sdk.ui.designVerticalPxToSp
 import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.lightClickable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.conflate
+import kotlin.math.ceil
 import android.graphics.Color as AColor
 
 /** Breaks a run of messages from one sender into a new group (time shown again). */
@@ -124,10 +132,7 @@ fun ThreadScreen(chat: String) {
                             items(msgs.size, key = { msgs[msgs.size - 1 - it].id }) { j ->
                                 val i = msgs.size - 1 - j
                                 val m = msgs[i]
-                                val prev = msgs.getOrNull(i - 1)
-                                val showTime =
-                                    prev == null || prev.fromMe != m.fromMe ||
-                                        prev.sender != m.sender || m.ts - prev.ts > GROUP_GAP_MS
+                                val showTime = startsGroup(msgs.getOrNull(i - 1), m)
                                 MessageRow(
                                     m,
                                     showTime = showTime,
@@ -281,6 +286,17 @@ private fun ThreadScrollBar(listState: androidx.compose.foundation.lazy.LazyList
     }
 }
 
+/**
+ * Whether [m] starts a new group (shows its time, and the sender in groups): a different sender
+ * than [prev], more than [GROUP_GAP_MS] later, or on a new day, as in Chats.
+ */
+internal fun startsGroup(
+    prev: Msg?,
+    m: Msg,
+): Boolean =
+    prev == null || prev.fromMe != m.fromMe || prev.sender != m.sender ||
+        m.ts - prev.ts > GROUP_GAP_MS || dayOf(prev.ts) != dayOf(m.ts)
+
 @Composable
 private fun MessageRow(
     m: Msg,
@@ -301,6 +317,7 @@ private fun MessageRow(
                 bottom = if (showTime) 8.dp else 3.dp,
             ),
     ) {
+        val columnWidthPx = with(LocalDensity.current) { (maxWidth * MESSAGE_WIDTH_FRACTION).roundToPx() }
         Column(
             Modifier
                 .fillMaxWidth(MESSAGE_WIDTH_FRACTION)
@@ -310,24 +327,18 @@ private fun MessageRow(
             if (showSender && !m.fromMe && m.senderName.isNotBlank()) {
                 LightText(text = m.senderName, variant = LightTextVariant.Detail)
             }
-            // The time only leads a group; an in-flight message always says so.
+            // The time only leads a group; an in-flight message always says so. Solid white, like the text.
             when {
-                m.pending -> LightText(text = "SENDING", variant = LightTextVariant.Detail)
-                showTime -> LightText(text = formatMessageTime(m.ts), variant = LightTextVariant.Detail)
+                m.pending -> TimeTag("SENDING")
+                showTime -> TimeTag(formatMessageTime(m.ts))
             }
             if (m.hasPicture) {
                 // Media is the one place colour is allowed: shown as-is, tap for full screen.
                 MediaThumb(m, onOpen = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle)) })
-                if (m.isVideo) LightText(text = "video", variant = LightTextVariant.Detail, lighten = true)
-                if (m.caption.isNotEmpty()) {
-                    LightText(text = m.caption, variant = LightTextVariant.Copy, align = if (m.fromMe) TextAlign.End else TextAlign.Start)
-                }
+                if (m.isVideo) MessageText("[Video]", m.fromMe, columnWidthPx)
+                if (m.caption.isNotEmpty()) MessageText(m.caption, m.fromMe, columnWidthPx)
             } else {
-                LightText(
-                    text = m.text,
-                    variant = LightTextVariant.Copy,
-                    align = if (m.fromMe) TextAlign.End else TextAlign.Start,
-                )
+                MessageText(m.text, m.fromMe, columnWidthPx)
             }
             // Receipt tag in place of ticks: one quiet word under the message it applies to.
             tag?.let { LightText(text = it, variant = LightTextVariant.Superfine, modifier = Modifier.padding(top = 1.dp)) }
@@ -368,6 +379,51 @@ private fun rememberBitmap(
     return state.value
 }
 
+@Composable
+private fun TimeTag(text: String) {
+    LightText(text = text, variant = LightTextVariant.Superfine, modifier = Modifier.padding(top = 1.dp))
+}
+
+/**
+ * Message text in `Paragraph`, as in Chats. Ours sits at the right in a block as wide as its
+ * widest line (capped at the message column), with the lines themselves left-aligned, so a short
+ * reply hugs the edge and a long one reads normally. Theirs is plain left-aligned text.
+ */
+@Composable
+private fun MessageText(
+    text: String,
+    fromMe: Boolean,
+    columnWidthPx: Int,
+) {
+    if (!fromMe) {
+        LightText(text = text, variant = LightTextVariant.Paragraph, modifier = Modifier.padding(top = 1.dp))
+        return
+    }
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val style = paragraphStyle()
+    val width =
+        remember(text, columnWidthPx, style, density) {
+            // Measured without a width cap: capping would break before a long word (a link) and
+            // size the block to the shorter line in front of it.
+            val layout = measurer.measure(AnnotatedString(text), style, constraints = Constraints())
+            val widest = (0 until layout.lineCount).maxOfOrNull { layout.getLineRight(it) } ?: 0f
+            // Rounded up: a sub-pixel shortfall would push the last word onto a new line.
+            with(density) { minOf(ceil(widest), columnWidthPx.toFloat()).toDp() }
+        }
+    LightText(text = text, variant = LightTextVariant.Paragraph, modifier = Modifier.padding(top = 1.dp).width(width))
+}
+
+/** The SDK's `Paragraph` style scaled to this screen, as `LightText` draws it (the SDK keeps its scaling internal). */
+@Composable
+private fun paragraphStyle(): TextStyle {
+    val p = LightThemeTokens.typography.paragraph
+
+    @Composable
+    fun TextUnit.scaled() = if (this == TextUnit.Unspecified) this else value.designVerticalPxToSp()
+    return p.copy(fontSize = p.fontSize.scaled(), lineHeight = p.lineHeight.scaled(), letterSpacing = p.letterSpacing.scaled())
+}
+
 /** Width / height of the image at [path], from its header alone; null if there's no readable image. */
 private fun imageAspect(path: String): Float? {
     if (path.isEmpty()) return null
@@ -397,7 +453,7 @@ private fun MediaThumb(
     val open = Modifier.lightClickable(onClickLabel = "Open photo", onClick = onOpen)
     if (aspect == null) {
         // No preview: a placeholder until the photo arrives; it still opens the viewer.
-        LightText(text = "photo", variant = LightTextVariant.Detail, lighten = true, modifier = open)
+        LightText(text = "[Photo]", variant = LightTextVariant.Paragraph, modifier = open.padding(top = 1.dp))
         return
     }
     Box(Modifier.fillMaxWidth(0.7f).aspectRatio(aspect).then(open)) {
