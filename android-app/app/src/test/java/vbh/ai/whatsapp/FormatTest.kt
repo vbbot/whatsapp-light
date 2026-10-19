@@ -1,0 +1,46 @@
+package vbh.ai.whatsapp
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class FormatTest {
+    @Test fun duration() {
+        assertEquals("00:00", formatDuration(0))
+        assertEquals("01:05", formatDuration(65_000))
+        assertEquals("1:02:03", formatDuration(3_723_000))
+        assertEquals("00:00", formatDuration(-5))
+    }
+
+    @Test fun displayNumberOnlyForPhoneJids() {
+        assertEquals("+447700900123", displayNumber("447700900123@s.whatsapp.net"))
+        assertEquals("+447700900123", displayNumber("447700900123:7@s.whatsapp.net"))
+        assertEquals("", displayNumber("195824822825056@lid"))
+        assertEquals("", displayNumber("12036302@g.us"))
+    }
+
+    @Test fun normalizeJidDropsDeviceSuffix() {
+        assertEquals("195824822825056@lid", normalizeJid("195824822825056:12@lid"))
+        assertEquals("447700900123@s.whatsapp.net", normalizeJid("447700900123@s.whatsapp.net"))
+        assertEquals("447700900123", normalizeJid("447700900123"))
+    }
+
+    @Test fun rowTimeRelative() {
+        val now = System.currentTimeMillis()
+        assertTrue(formatRowTime(now).matches(Regex("\\d\\d:\\d\\d")))
+        val yesterdayNoon =
+            java.time.LocalDate
+                .now()
+                .minusDays(1)
+                .atTime(12, 0)
+                .atZone(java.time.ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+        assertEquals("Yest", formatRowTime(yesterdayNoon))
+        assertEquals("", formatRowTime(0))
+    }
+
+    @Test fun messageTimeTodayHasNoDayTag() {
+        assertTrue(formatMessageTime(System.currentTimeMillis()).matches(Regex("\\d{1,2}:\\d\\d [AP]M")))
+    }
+}
