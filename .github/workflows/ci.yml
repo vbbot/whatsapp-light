@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Light SDK commit the app is built against (github.com/lightphone/light-sdk).
+  LIGHT_SDK_REF: 69216b3cd2e6a45abab63268c4d08800a5aa33da
+  NDK_VERSION: 25.1.8937393
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: whatsapp
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: whatsapp
+
+      # The app includes the Light SDK from a sibling checkout (../light-sdk from the repo).
+      - uses: actions/checkout@v7
+        with:
+          repository: lightphone/light-sdk
+          ref: ${{ env.LIGHT_SDK_REF }}
+          path: light-sdk
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: "21"
+          distribution: temurin
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: whatsapp/walib/go.sum
+
+      - uses: android-actions/setup-android@v4
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Go tests
+        run: |
+          (cd walib && go vet ./... && go test ./...)
+          (cd meowcaller && go test ./rtp/ .)
+
+      - name: Build Go wrapper
+        run: |
+          sdkmanager "ndk;$NDK_VERSION"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          "$(go env GOPATH)/bin/gomobile" init
+          PATH="$(go env GOPATH)/bin:$PATH" scripts/build-walib.sh
+
+      - name: Lint, test and build debug APK
+        working-directory: whatsapp/android-app
+        run: ./gradlew ktlintCheck testDebugUnitTest assembleDebug
+
+      - name: Name APK
+        working-directory: whatsapp/android-app
+        run: |
+          version=$(sed -n 's/^ *versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n1)
+          name="whatsapp_debug_${version}_${GITHUB_SHA::7}"
+          echo "APK_NAME=$name" >> "$GITHUB_ENV"
+          mv app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/$name.apk"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.APK_NAME }}.apk

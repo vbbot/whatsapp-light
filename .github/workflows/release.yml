@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  LIGHT_SDK_REF: 69216b3cd2e6a45abab63268c4d08800a5aa33da
+  NDK_VERSION: 25.1.8937393
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: whatsapp
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: whatsapp
+
+      - uses: actions/checkout@v7
+        with:
+          repository: lightphone/light-sdk
+          ref: ${{ env.LIGHT_SDK_REF }}
+          path: light-sdk
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: "21"
+          distribution: temurin
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: whatsapp/walib/go.sum
+
+      - uses: android-actions/setup-android@v4
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Check tag matches versionName
+        run: |
+          version=$(sed -n 's/^ *versionName = "\([^"]*\)".*/\1/p' android-app/app/build.gradle.kts | head -n1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName $version"
+            exit 1
+          fi
+
+      - name: Set up signing key
+        working-directory: whatsapp/android-app
+        env:
+          KEY_STORE_BASE64: ${{ secrets.KEY_STORE_BASE64 }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          for name in KEY_STORE_BASE64 KEY_STORE_PASSWORD ALIAS KEY_PASSWORD; do
+            if [ -z "$(printenv "$name")" ]; then
+              echo "::error::Repository secret $name is not set"
+              exit 1
+            fi
+          done
+          echo "$KEY_STORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/release.jks"
+            echo "storePassword=$KEY_STORE_PASSWORD"
+            echo "keyAlias=$ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > local.properties
+
+      - name: Go tests
+        run: |
+          (cd walib && go vet ./... && go test ./...)
+          (cd meowcaller && go test ./rtp/ .)
+
+      - name: Build Go wrapper
+        run: |
+          sdkmanager "ndk;$NDK_VERSION"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          "$(go env GOPATH)/bin/gomobile" init
+          PATH="$(go env GOPATH)/bin:$PATH" scripts/build-walib.sh
+
+      - name: Lint, test and build release APK
+        working-directory: whatsapp/android-app
+        run: ./gradlew ktlintCheck testDebugUnitTest assembleRelease
+
+      - name: Verify signature
+        working-directory: whatsapp/android-app
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          "$apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish release
+        working-directory: whatsapp/android-app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk="$GITHUB_WORKSPACE/whatsapp_${GITHUB_REF_NAME#v}.apk"
+          mv app/build/outputs/apk/release/app-release.apk "$apk"
+          gh release create "$GITHUB_REF_NAME" "$apk" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Remove signing key
+        if: always()
+        working-directory: whatsapp/android-app
+        run: rm -f "$RUNNER_TEMP/release.jks" local.properties
