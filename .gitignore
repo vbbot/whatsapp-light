@@ -1,0 +1,29 @@
+# WhatsApp session stores: linked-device keys. Never commit.
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Logs and local diagnostics
+*.log
+
+# Go binaries
+
+# gomobile output (rebuild with the steps in README.md)
+/android-libs/
+/android-app/app/libs/*.aar
+
+# Android / Gradle
+/android-app/.gradle/
+/android-app/.kotlin/
+/android-app/build/
+/android-app/app/build/
+/android-app/local.properties
+*.apk
+*.aab
+.idea/
+*.iml
+.DS_Store
+
+# Unused upstream clone (the app uses hypermeow from the Go module cache)
+/whatsmeow/

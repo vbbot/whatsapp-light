@@ -1,0 +1,68 @@
+package com.wapoc.app
+
+import kotlinx.coroutines.flow.MutableStateFlow
+
+/** A person to message or call. [chat] is the canonical chat JID (LID when known). */
+data class Contact(val chat: String, val name: String, val phone: String)
+
+data class CallUi(
+    val id: String,
+    val peer: String,
+    val incoming: Boolean,
+    val phase: Int = 0,
+    val muted: Boolean = false,
+    val speaker: Boolean = false,
+    val connectedAt: Long = 0L,
+    /** A video call (either side has, or asked for, video). */
+    val video: Boolean = false,
+    /** Our camera is on. */
+    val localVideo: Boolean = false,
+    /** Their camera is on. */
+    val remoteVideo: Boolean = false,
+    /** They asked to switch this audio call to video and we haven't answered yet. */
+    val upgradeRequested: Boolean = false,
+    /** Rotate their frames by this many quarter turns clockwise to show them upright. */
+    val remoteOrientation: Int = 0,
+) {
+    val phaseLabel: String
+        get() = when (phase) {
+            1 -> "calling…"
+            2 -> if (incoming) "incoming" else "ringing…"
+            3 -> "connecting…"
+            5 -> "call ended"
+            6 -> "waiting room"
+            else -> "…"
+        }
+}
+
+/** Process-wide UI state, written by [WaCore], observed by Compose. */
+object WaState {
+    val status = MutableStateFlow("Starting…")
+    val qr = MutableStateFlow<String?>(null)
+    val connected = MutableStateFlow(false)
+    val ownNumber = MutableStateFlow("")
+    val contacts = MutableStateFlow<List<Contact>>(emptyList())
+    val contactsLoaded = MutableStateFlow(false)
+    val call = MutableStateFlow<CallUi?>(null)
+    val error = MutableStateFlow<String?>(null)
+    /** Decoded size of the peer's video, once known. */
+    val remoteVideoSize = MutableStateFlow<Pair<Int, Int>?>(null)
+    val logs = MutableStateFlow<List<String>>(emptyList())
+
+    /** Persistent copy of the log (app-private), so a call can be diagnosed afterwards. */
+    @Volatile var logFile: java.io.File? = null
+    private val stamp = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
+
+    fun log(line: String) {
+        android.util.Log.i("WaPoc", line)
+        logs.value = (logs.value + line).takeLast(60)
+        logFile?.let { f ->
+            runCatching {
+                synchronized(this) {
+                    if (f.length() > 2_000_000) f.writeText("")
+                    f.appendText(stamp.format(java.util.Date()) + " " + line + "\n")
+                }
+            }
+        }
+    }
+}
