@@ -125,9 +125,11 @@ fun ThreadScreen(chat: String) {
                 if (msgs.isEmpty()) {
                     StatusText("No messages yet.")
                 } else {
-                    Row(Modifier.fillMaxSize()) {
+                    // The scrollbar is drawn over the list, as in Chats; sent rows keep clear of it with
+                    // their wider end padding (see MessageRow).
+                    Box(Modifier.fillMaxSize()) {
                         // Only the rows on screen are built; they vary in height.
-                        LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.weight(1f)) {
+                        LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize()) {
                             item(key = "bottom") { Box(Modifier.height(1f.gridUnitsAsDp())) }
                             items(msgs.size, key = { msgs[msgs.size - 1 - it].id }) { j ->
                                 val i = msgs.size - 1 - j
@@ -143,7 +145,7 @@ fun ThreadScreen(chat: String) {
                             }
                             if (waitingForPhone) item(key = "loading") { Banner("Loading earlier messages…") }
                         }
-                        ThreadScrollBar(listState)
+                        ThreadScrollBar(listState, Modifier.align(Alignment.CenterEnd))
                     }
                 }
             }
@@ -247,7 +249,10 @@ private fun loadOlderAtTop(
  * height, so the content height is estimated from the rows on screen.
  */
 @Composable
-private fun ThreadScrollBar(listState: androidx.compose.foundation.lazy.LazyListState) {
+private fun ThreadScrollBar(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier,
+) {
     val metrics by remember(listState) {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -264,7 +269,7 @@ private fun ThreadScrollBar(listState: androidx.compose.foundation.lazy.LazyList
         }
     }
     val barColor = LightThemeTokens.colors.content
-    Box(Modifier.width(2f.gridUnitsAsDp()).fillMaxHeight()) {
+    Box(modifier.width(2f.gridUnitsAsDp()).fillMaxHeight()) {
         val (thumb, top) = metrics ?: return@Box
         BoxWithConstraints(Modifier.fillMaxSize()) {
             Box(
