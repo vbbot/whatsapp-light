@@ -27,3 +27,7 @@
 
 # Unused upstream clone (the app uses hypermeow from the Go module cache)
 /whatsmeow/
+
+# Release signing keys
+*.jks
+*.keystore

@@ -1,29 +1,60 @@
-# wa-poc
+# WhatsApp for the Light Phone III
 
-WhatsApp messaging and calling client for the Light Phone III, as a standalone Android app
-styled with the Light SDK's UI components.
+An unofficial WhatsApp client for the Light Phone III, built with the Light SDK's UI components.
 
-## Layout
+> [!WARNING]
+> Not affiliated with WhatsApp, Meta or Light. It connects as a linked device over a
+> reverse-engineered protocol, so WhatsApp may restrict accounts that use it.
 
-- `android-app/` — Kotlin / Compose app (UI, audio, camera + H.264 video, notifications).
-  Uses `com.thelightphone:sdk-ui` from a sibling checkout at `../../light-sdk`
-  (https://github.com/lightphone/light-sdk), included as a Gradle composite build.
-- `walib/` — Go wrapper (gomobile) around hypermeow (whatsmeow fork) and meowcaller.
-- `meowcaller/` — vendored meowcaller (https://github.com/purpshell/meowcaller) with local
-  patches; see `meowcaller/PATCHES-wa-poc.md`.
+## Features
+
+- Chats: text, photos, delivered/seen receipts
+- Voice and video calls, front and rear camera
+- Call log and contacts
+
+## Install
+
+Download the latest APK from Releases and install it with `adb`:
+
+    adb install whatsapp_<version>.apk
+
+Open the app and scan the QR code from WhatsApp on your main phone (Settings, Linked devices,
+Link a device).
 
 ## Build
 
-Needs Go, gomobile (`go install golang.org/x/mobile/cmd/gomobile@latest && gomobile init`),
-the Android SDK + NDK, JDK 21, and the Light SDK checked out at `../../light-sdk`.
+Requires Go, gomobile, the Android SDK with NDK 25.1.8937393, JDK 21, and a checkout of
+[light-sdk](https://github.com/lightphone/light-sdk) next to this repository (or set
+`LIGHT_SDK_DIR`).
 
-    # 1. Go wrapper -> AAR
-    cd walib
-    ANDROID_HOME=~/Library/Android/sdk ANDROID_NDK_HOME=~/Library/Android/sdk/ndk/25.1.8937393 \
-      gomobile bind -target=android/arm64 -androidapi 26 -javapkg vbh.ai.whatsapp -o ../android-libs/walib.aar .
-    mkdir -p ../android-app/app/libs && cp ../android-libs/walib.aar ../android-app/app/libs/
+    go install golang.org/x/mobile/cmd/gomobile@latest && gomobile init
+    ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393 scripts/build-walib.sh
+    cd android-app && ./gradlew assembleDebug
 
-    # 2. App
-    cd ../android-app && ./gradlew :app:assembleDebug
+Tests: `./gradlew ktlintCheck testDebugUnitTest` in `android-app`, `go test ./...` in `walib`.
 
-Session databases (`*.db`) hold WhatsApp linked-device keys and are git-ignored.
+## Release
+
+Push a tag matching `versionName` in `android-app/app/build.gradle.kts`, e.g. `v0.1.0`. The
+release workflow builds a signed, minified APK and publishes it. It needs these repository
+secrets:
+
+| Secret | Value |
+| --- | --- |
+| `KEY_STORE_BASE64` | `base64 -i release.jks` |
+| `KEY_STORE_PASSWORD` | keystore password |
+| `ALIAS` | key alias |
+| `KEY_PASSWORD` | key password |
+
+## Layout
+
+- `android-app/` Android app (Kotlin, Compose)
+- `walib/` Go library bridging the app to WhatsApp, built with gomobile
+- `meowcaller/` vendored [meowcaller](https://github.com/purpshell/meowcaller) with local patches
+  (`PATCHES-wa-poc.md`)
+
+## Credits
+
+[hypermeow](https://github.com/polymorfa/hypermeow) (a [whatsmeow](https://github.com/tulir/whatsmeow)
+fork), [meowcaller](https://github.com/purpshell/meowcaller),
+[Light SDK](https://github.com/lightphone/light-sdk).
