@@ -391,8 +391,8 @@ private fun TimeTag(text: String) {
 
 /**
  * Message text in `Paragraph`, as in Chats. Ours sits at the right in a block as wide as its
- * widest line (capped at the message column), with the lines themselves left-aligned, so a short
- * reply hugs the edge and a long one reads normally. Theirs is plain left-aligned text.
+ * widest line once wrapped to the message column, with the lines themselves left-aligned, so its
+ * right edge is the text's own. Theirs is plain left-aligned text.
  */
 @Composable
 private fun MessageText(
@@ -409,9 +409,11 @@ private fun MessageText(
     val style = paragraphStyle()
     val width =
         remember(text, columnWidthPx, style, density) {
-            // Measured without a width cap: capping would break before a long word (a link) and
-            // size the block to the shorter line in front of it.
-            val layout = measurer.measure(AnnotatedString(text), style, constraints = Constraints())
+            // Wrapped at the column width, then sized to the widest wrapped line, so the block's
+            // right edge is the text's: a wrapped message ends flush right instead of leaving the
+            // slack of its line breaks. Laying it out again at that width breaks it the same way,
+            // since every line already fits.
+            val layout = measurer.measure(AnnotatedString(text), style, constraints = Constraints(maxWidth = columnWidthPx))
             val widest = (0 until layout.lineCount).maxOfOrNull { layout.getLineRight(it) } ?: 0f
             // Rounded up: a sub-pixel shortfall would push the last word onto a new line.
             with(density) { minOf(ceil(widest), columnWidthPx.toFloat()).toDp() }
