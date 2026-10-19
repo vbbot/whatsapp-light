@@ -20,7 +20,13 @@ data class Msg(
     val status: Int = Status.NONE,
     /** For incoming messages: we already sent a read receipt for it. */
     val readSent: Boolean = false,
-)
+    /** Local file for a photo (full size once downloaded) or a video's thumbnail; "" if none. */
+    val media: String = "",
+) {
+    val isVideo: Boolean get() = text.startsWith("[video]")
+    /** Caption, without the "[image]" / "[video]" placeholder. */
+    val caption: String get() = text.removePrefix("[image]").removePrefix("[video]").trim()
+}
 
 /** Delivery state of our own messages; only ever moves forward. */
 object Status {
@@ -79,6 +85,7 @@ object MessageStore {
                         o.getString("id"), o.getString("chat"), o.getString("sender"), o.getString("senderName"),
                         o.getString("text"), o.getLong("ts"), o.getBoolean("fromMe"), o.getBoolean("isGroup"),
                         status = o.optInt("status", Status.NONE), readSent = o.optBoolean("readSent", false),
+                        media = o.optString("media", ""),
                     )
                 }
             }
@@ -96,9 +103,18 @@ object MessageStore {
         val merged = m.copy(
             status = maxOf(m.status, old?.status ?: Status.NONE, earlyReceipts.remove(m.id) ?: Status.NONE),
             readSent = m.readSent || old?.readSent == true,
+            media = m.media.ifEmpty { old?.media.orEmpty() },
         )
         // replace a pending local echo or duplicate with the same id
         messages.value = (cur.filterNot { it.id == m.id } + merged).sortedBy { it.ts }.takeLast(5000)
+        save()
+    }
+
+    /** A photo finished downloading: point the message at the full-size file. */
+    @Synchronized
+    fun setMedia(id: String, path: String) {
+        if (messages.value.none { it.id == id }) return
+        messages.value = messages.value.map { if (it.id == id) it.copy(media = path) else it }
         save()
     }
 
@@ -155,7 +171,7 @@ object MessageStore {
             arr.put(JSONObject().put("id", it.id).put("chat", it.chat).put("sender", it.sender)
                 .put("senderName", it.senderName).put("text", it.text).put("ts", it.ts)
                 .put("fromMe", it.fromMe).put("isGroup", it.isGroup)
-                .put("status", it.status).put("readSent", it.readSent))
+                .put("status", it.status).put("readSent", it.readSent).put("media", it.media))
         }
         runCatching { f.writeText(arr.toString()) }
     }

@@ -15,6 +15,8 @@ sealed interface Screen {
     data class Contacts(val purpose: Purpose) : Screen
     data class Number(val purpose: Purpose) : Screen
     data object Settings : Screen
+    /** A photo (or a video's thumbnail) full screen. */
+    data class MediaViewer(val path: String, val backTo: String) : Screen
     /** Choose voice or video before calling [chat]. */
     data class CallType(val chat: String) : Screen
     /** Confirm placing a voice or video call to [chat]. */

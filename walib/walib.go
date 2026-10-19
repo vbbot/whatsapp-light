@@ -11,6 +11,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -42,7 +44,11 @@ type Listener interface {
 	OnLog(line string)
 	// OnMessage reports a text message (incoming, or sent from another device). Non-text
 	// messages arrive with a placeholder body such as "[image]". timestampMs is Unix ms.
-	OnMessage(chat, sender, senderName, id, text string, timestampMs int64, fromMe, isGroup bool)
+	// mediaPath is a local file for photo/video messages (the embedded thumbnail at first; see
+	// OnMediaReady), or "".
+	OnMessage(chat, sender, senderName, id, text string, timestampMs int64, fromMe, isGroup bool, mediaPath string)
+	// OnMediaReady reports that a received photo finished downloading to path (full size).
+	OnMediaReady(id, path string)
 	// OnReceipt reports message receipts. ids is comma-separated. kind is one of
 	// "delivered", "read", "played" (from the other party, about our messages) or
 	// "read-self" (we read their messages on another of our devices).
@@ -80,6 +86,7 @@ type Client struct {
 	mic      *micSource
 	speaker  Speaker
 	renderer VideoRenderer
+	mediaDir string
 	cancel   context.CancelFunc
 }
 
@@ -186,8 +193,77 @@ func (c *Client) handleMessage(m *events.Message) {
 			return // protocol/reaction/system messages
 		}
 	}
+	mediaPath := c.saveMedia(m)
 	c.l.OnMessage(m.Info.Chat.String(), m.Info.Sender.String(), m.Info.PushName, m.Info.ID,
-		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup)
+		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath)
+}
+
+// SetMediaDir sets where received photos and thumbnails are stored. Without it, media
+// messages arrive as text placeholders only.
+func (c *Client) SetMediaDir(dir string) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	c.mu.Lock()
+	c.mediaDir = dir
+	c.mu.Unlock()
+}
+
+// saveMedia writes the embedded thumbnail of a photo/video message right away (returned path)
+// and, for photos, downloads the full image in the background (reported via OnMediaReady).
+// Videos keep the thumbnail only for now.
+func (c *Client) saveMedia(m *events.Message) string {
+	c.mu.Lock()
+	dir := c.mediaDir
+	c.mu.Unlock()
+	if dir == "" {
+		return ""
+	}
+	id := safeFileName(m.Info.ID)
+	var thumb []byte
+	img := m.Message.GetImageMessage()
+	vid := m.Message.GetVideoMessage()
+	switch {
+	case img != nil:
+		thumb = img.GetJPEGThumbnail()
+	case vid != nil:
+		thumb = vid.GetJPEGThumbnail()
+	default:
+		return ""
+	}
+	path := ""
+	if len(thumb) > 0 {
+		path = filepath.Join(dir, id+"_t.jpg")
+		if err := os.WriteFile(path, thumb, 0o600); err != nil {
+			path = ""
+		}
+	}
+	if img != nil {
+		go func() {
+			data, err := c.wa.Download(context.Background(), img)
+			if err != nil {
+				c.l.OnLog("media: download failed: " + err.Error())
+				return
+			}
+			full := filepath.Join(dir, id+".jpg")
+			if err := os.WriteFile(full, data, 0o600); err != nil {
+				c.l.OnLog("media: save failed: " + err.Error())
+				return
+			}
+			c.l.OnMediaReady(m.Info.ID, full)
+		}()
+	}
+	return path
+}
+
+func safeFileName(s string) string {
+	b := []byte(s)
+	for i, ch := range b {
+		if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '_') {
+			b[i] = '_'
+		}
+	}
+	return string(b)
 }
 
 // SendText sends a text message to a phone number (+15551234567) or JID and returns the message ID.

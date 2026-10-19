@@ -29,6 +29,8 @@ object WaCore : Listener {
     const val CH_MESSAGES = "messages"
     private const val NOTIF_INCOMING = 2
 
+    fun mediaDir(): File = File(app.filesDir, "media").also { it.mkdirs() }
+
     /** Sets up what the UI needs even before the connection starts (camera preview, demo mode). */
     @Synchronized
     fun prepare(context: Context) {
@@ -56,6 +58,7 @@ object WaCore : Listener {
                 val c = Client(File(app.filesDir, "wa.db").absolutePath, this)
                 c.setSpeaker(audio)
                 c.setVideoRenderer(video)
+                c.setMediaDir(mediaDir().absolutePath)
                 client = c
                 WaState.status.value = if (c.isPaired) "connecting…" else "waiting for QR…"
                 c.connect()
@@ -316,17 +319,22 @@ object WaCore : Listener {
     fun sendMedia(chat: String, uri: android.net.Uri) = bg {
         val tmp = "pending-" + System.nanoTime()
         val isGroup = chat.endsWith("@g.us")
+        var local: File? = null
         try {
             val media = MediaSend.prepare(app, uri)
             val label = if (media.kind == "image") "[image]" else "[video]"
-            MessageStore.add(Msg(tmp, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, pending = true))
+            // Keep our own copy to show in the thread: the photo itself, or a video's thumbnail.
+            local = File(mediaDir(), "$tmp.jpg").also { it.writeBytes(if (media.kind == "image") media.data else media.thumbnail) }
+            MessageStore.add(Msg(tmp, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, pending = true, media = local.path))
             val id = client!!.sendMedia(chat, media.kind, media.data, media.mimetype, "",
                 media.width.toLong(), media.height.toLong(), media.seconds.toLong(), media.thumbnail)
+            val kept = File(mediaDir(), id.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".jpg").also { local.renameTo(it) }
             MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
-            MessageStore.add(Msg(id, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, status = Status.SENT))
+            MessageStore.add(Msg(id, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, status = Status.SENT, media = kept.path))
             WaState.log("media sent: ${media.kind} ${media.data.size / 1024} KB ${media.width}x${media.height}")
         } catch (e: Exception) {
             MessageStore.messages.value = MessageStore.messages.value.filterNot { it.id == tmp }
+            local?.delete()
             throw e
         }
     }
@@ -417,10 +425,11 @@ object WaCore : Listener {
 
     override fun onMessage(
         chat: String, sender: String, senderName: String, id: String, text: String,
-        timestampMs: Long, fromMe: Boolean, isGroup: Boolean,
+        timestampMs: Long, fromMe: Boolean, isGroup: Boolean, mediaPath: String,
     ) {
         // Our own messages sent from another device have already reached the server.
-        MessageStore.add(Msg(id, chat, sender, senderName, text, timestampMs, fromMe, isGroup, status = if (fromMe) Status.SENT else Status.NONE))
+        MessageStore.add(Msg(id, chat, sender, senderName, text, timestampMs, fromMe, isGroup,
+            status = if (fromMe) Status.SENT else Status.NONE, media = mediaPath))
         if (!isGroup) resolve(chat)
         if (!fromMe && MessageStore.openChat.value != chat) {
             val title = MessageStore.title(chat, MessageStore.messages.value)
@@ -434,6 +443,8 @@ object WaCore : Listener {
             app.getSystemService(NotificationManager::class.java).notify(chat.hashCode(), n)
         }
     }
+
+    override fun onMediaReady(id: String, path: String) = MessageStore.setMedia(id, path)
 
     override fun onReceipt(chat: String, ids: String, kind: String, timestampMs: Long) {
         val set = ids.split(',').filter { it.isNotBlank() }.toSet()

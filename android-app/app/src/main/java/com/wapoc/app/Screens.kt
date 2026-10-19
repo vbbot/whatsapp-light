@@ -5,6 +5,7 @@ import android.graphics.Color as AColor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -349,7 +350,7 @@ fun ThreadScreen(chat: String) {
                                 val prev = msgs.getOrNull(i - 1)
                                 val showTime = prev == null || prev.fromMe != m.fromMe ||
                                     prev.sender != m.sender || m.ts - prev.ts > GROUP_GAP_MS
-                                MessageRow(m, showTime = showTime, showSender = isGroup && showTime, tag = tag?.takeIf { it.first == m.id }?.second)
+                                MessageRow(m, showTime = showTime, showSender = isGroup && showTime, tag = tag?.takeIf { it.first == m.id }?.second, chatTitle = title)
                             }
                             Box(Modifier.height(1f.gridUnitsAsDp()))
                         }
@@ -373,7 +374,7 @@ fun ThreadScreen(chat: String) {
 }
 
 @Composable
-private fun MessageRow(m: Msg, showTime: Boolean, showSender: Boolean, tag: String?) {
+private fun MessageRow(m: Msg, showTime: Boolean, showSender: Boolean, tag: String?, chatTitle: String) {
     // Outgoing sits right, incoming left, each capped at 7/8 of the row. Outgoing gets a
     // wider right buffer so it stays clear of the scrollbar.
     BoxWithConstraints(
@@ -400,14 +401,79 @@ private fun MessageRow(m: Msg, showTime: Boolean, showSender: Boolean, tag: Stri
                 m.pending -> LightText(text = "SENDING", variant = LightTextVariant.Detail)
                 showTime -> LightText(text = formatMessageTime(m.ts), variant = LightTextVariant.Detail)
             }
-            LightText(
-                text = m.text,
-                variant = LightTextVariant.Copy,
-                align = if (m.fromMe) TextAlign.End else TextAlign.Start,
-            )
+            if (m.media.isNotEmpty()) {
+                // Media is the one place colour is allowed: shown as-is, tap for full screen.
+                MediaThumb(m.media, onOpen = { Nav.push(Screen.MediaViewer(m.media, chatTitle)) })
+                if (m.isVideo) LightText(text = "video", variant = LightTextVariant.Detail, lighten = true)
+                if (m.caption.isNotEmpty()) {
+                    LightText(text = m.caption, variant = LightTextVariant.Copy, align = if (m.fromMe) TextAlign.End else TextAlign.Start)
+                }
+            } else {
+                LightText(
+                    text = m.text,
+                    variant = LightTextVariant.Copy,
+                    align = if (m.fromMe) TextAlign.End else TextAlign.Start,
+                )
+            }
             // Receipt tag in place of ticks: one quiet word under the message it applies to.
             tag?.let { LightText(text = it, variant = LightTextVariant.Superfine, modifier = Modifier.padding(top = 1.dp)) }
         }
+    }
+}
+
+/** Decodes [path] scaled down to about [maxSide] px, off the main thread; null until ready. */
+@Composable
+private fun rememberBitmap(path: String, maxSide: Int): androidx.compose.ui.graphics.ImageBitmap? {
+    val state = androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, path, maxSide) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(path, bounds)
+                var sample = 1
+                while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
+                android.graphics.BitmapFactory.decodeFile(path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+                    ?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    return state.value
+}
+
+/** A photo in a thread row: 60% of the row wide, its own aspect ratio, tap to open. */
+@Composable
+private fun MediaThumb(path: String, onOpen: () -> Unit) {
+    val bmp = rememberBitmap(path, 720)
+    if (bmp == null) {
+        LightText(text = "photo", variant = LightTextVariant.Detail, lighten = true)
+        return
+    }
+    Image(
+        bitmap = bmp,
+        contentDescription = "Photo, open full screen",
+        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+        modifier = Modifier
+            .fillMaxWidth(0.7f)
+            .aspectRatio(bmp.width.toFloat() / bmp.height.coerceAtLeast(1))
+            .lightClickable(onClickLabel = "Open photo", onClick = onOpen),
+    )
+}
+
+/** Full-screen photo; back returns to the chat. */
+@Composable
+fun MediaViewerScreen(path: String, backTo: String) {
+    val bmp = rememberBitmap(path, 2048)
+    ScreenColumn {
+        LightTopBar(leftButton = backButton(backTo) { Nav.pop() })
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            if (bmp == null) StatusText(LOADING_TEXT)
+            else Image(
+                bitmap = bmp,
+                contentDescription = "Photo",
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
     }
 }
 

@@ -47,7 +47,9 @@ class MainActivity : ComponentActivity() {
         Experiments.applyIntent(this, intent)
         MediaPicker.request = { block ->
             pendingMedia = block
-            mediaLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+            MediaPicker.rescanCameraFolders(this) {
+                mediaLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+            }
         }
         CameraGate.request = { block ->
             if (checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) block(true)
@@ -111,6 +113,7 @@ class MainActivity : ComponentActivity() {
                     is Screen.Number -> NumberScreen(s.purpose)
                     Screen.Settings -> SettingsScreen()
                     is Screen.CallType -> CallTypeScreen(s.chat)
+                    is Screen.MediaViewer -> MediaViewerScreen(s.path, s.backTo)
                     is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
                 }
             }
