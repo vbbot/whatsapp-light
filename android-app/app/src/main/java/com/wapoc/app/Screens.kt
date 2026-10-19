@@ -726,7 +726,6 @@ fun SettingsScreen() {
     val status by WaState.status.collectAsState()
     val own by WaState.ownNumber.collectAsState()
     val seenStatus by AppSettings.seenStatus.collectAsState()
-    val logs by WaState.logs.collectAsState()
     ScreenColumn {
         LightTopBar(
             leftButton = backButton(Nav.tab.collectAsState().value.label.lowercase()) { Nav.pop() },
@@ -742,13 +741,6 @@ fun SettingsScreen() {
                     subtitle = "let people see when you've read their messages",
                     onToggle = { AppSettings.setSeenStatus(!seenStatus) },
                 )
-                Column(Modifier.padding(horizontal = 2f.gridUnitsAsDp(), vertical = 10.dp)) {
-                    LightText(text = "Diagnostics", variant = LightTextVariant.Heading)
-                    LightText(text = "recent activity, for troubleshooting", variant = LightTextVariant.Detail, lighten = true)
-                    logs.takeLast(25).forEach {
-                        LightText(text = it, variant = LightTextVariant.Superfine, lighten = true)
-                    }
-                }
             }
         }
         Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
