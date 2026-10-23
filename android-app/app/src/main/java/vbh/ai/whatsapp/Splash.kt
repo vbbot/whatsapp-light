@@ -42,7 +42,7 @@ fun SplashScreen() {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(
                     painterResource(R.drawable.splash_art),
-                    contentDescription = "WhatsApp",
+                    contentDescription = "WhatsApp Light",
                     contentScale = ContentScale.FillWidth,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 3f.gridUnitsAsDp()).alpha(fade.value),
                 )
