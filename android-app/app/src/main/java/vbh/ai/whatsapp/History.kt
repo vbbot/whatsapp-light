@@ -13,9 +13,16 @@ data class HistoryBatch(
     val type: String,
     val progress: Int,
     val messages: List<Msg>,
-    /** chat -> (name, unread count). */
-    val chats: Map<String, Pair<String, Int>>,
+    val chats: Map<String, HistoryChat>,
     val calls: List<CallRecord>,
+)
+
+/** A conversation's details in a history batch; [mutedUntil] as in [ChatState]. */
+data class HistoryChat(
+    val name: String,
+    val unread: Int,
+    val archived: Boolean = false,
+    val mutedUntil: Long = 0,
 )
 
 /**
@@ -64,7 +71,8 @@ object History {
         val o = JSONObject(json)
         val chats =
             o.optJSONArray("chats").objects().associate {
-                it.getString("chat") to (it.optString("name") to it.optInt("unread"))
+                it.getString("chat") to
+                    HistoryChat(it.optString("name"), it.optInt("unread"), it.optBoolean("archived"), it.optLong("mutedUntil"))
             }
         val raw =
             o.optJSONArray("messages").objects().map {
@@ -88,7 +96,7 @@ object History {
             raw
                 .filter { !it.fromMe }
                 .groupBy { it.chat }
-                .flatMap { (chat, list) -> list.sortedByDescending { it.ts }.take(chats[chat]?.second ?: 0) }
+                .flatMap { (chat, list) -> list.sortedByDescending { it.ts }.take(chats[chat]?.unread ?: 0) }
                 .map { it.id }
                 .toSet()
         val messages = raw.map { it.copy(readSent = it.id !in stillUnread) }
@@ -100,8 +108,14 @@ object History {
         MessageStore.batch {
             MessageStore.addAll(batch.messages)
             for ((chat, info) in batch.chats) {
-                MessageStore.setChatName(chat, info.first)
-                if (!batch.onDemand) MessageStore.markReadExceptNewest(chat, info.second)
+                MessageStore.setChatName(chat, info.name)
+                if (!batch.onDemand) {
+                    MessageStore.markReadExceptNewest(chat, info.unread)
+                    // History only turns these on: app-state events (which may come first) are the
+                    // authority, and a batch that leaves a field out mustn't undo them.
+                    if (info.archived) MessageStore.setArchived(chat, true)
+                    if (info.mutedUntil != 0L) MessageStore.setMutedUntil(chat, info.mutedUntil)
+                }
             }
         }
         CallLog.addAll(batch.calls)

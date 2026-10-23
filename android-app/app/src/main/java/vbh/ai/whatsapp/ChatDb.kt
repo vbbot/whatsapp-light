@@ -56,7 +56,11 @@ class ChatDb(
         db.execSQL("CREATE INDEX calls_started ON calls(started_at)")
         // last_read: newest message timestamp the user has seen (drives the unread marker).
         // name: chat name from history sync (groups, saved contacts), if any.
-        db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '')")
+        // archived: kept out of the chat list. muted_until: 0 not muted, -1 until unmuted, else Unix ms.
+        db.execSQL(
+            "CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '', " +
+                "archived INTEGER NOT NULL DEFAULT 0, muted_until INTEGER NOT NULL DEFAULT 0)",
+        )
     }
 
     override fun onUpgrade(
@@ -66,11 +70,16 @@ class ChatDb(
     ) {
         // 2: download info for fetching full photos on demand.
         if (oldVersion < 2) db.execSQL("ALTER TABLE messages ADD COLUMN media_ref TEXT NOT NULL DEFAULT ''")
+        // 3: archive and mute state.
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE chats ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0")
+        }
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 2
+        const val VERSION = 3
 
         @Volatile private var shared: ChatDb? = null
 

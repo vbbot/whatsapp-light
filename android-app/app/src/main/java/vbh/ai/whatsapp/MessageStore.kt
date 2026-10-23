@@ -64,7 +64,21 @@ data class ChatSummary(
     val chat: String,
     val last: Msg,
     val unread: Boolean,
+    val muted: Boolean = false,
 )
+
+/** A chat's archive and mute state; [mutedUntil] is 0 (not muted), [MUTED_FOREVER] or a Unix time in ms. */
+data class ChatState(
+    val archived: Boolean = false,
+    val mutedUntil: Long = 0,
+) {
+    fun mutedAt(now: Long): Boolean = mutedUntil == MUTED_FOREVER || mutedUntil > now
+
+    /** Muted or archived: new messages don't notify. */
+    fun quietAt(now: Long): Boolean = archived || mutedAt(now)
+}
+
+const val MUTED_FOREVER = -1L
 
 /**
  * Messages and per-chat state, in [ChatDb]. Screens collect [changes] and re-run their (small,
@@ -280,6 +294,34 @@ object MessageStore {
         changed()
     }
 
+    /** Archives or unarchives [chat] here (sync with WhatsApp is the caller's job). */
+    @Synchronized
+    fun setArchived(
+        chat: String,
+        archived: Boolean,
+    ) {
+        val d = db ?: return
+        d.execSQL(
+            "INSERT INTO chats(chat, archived) VALUES(?, ?) ON CONFLICT(chat) DO UPDATE SET archived = excluded.archived",
+            arrayOf<Any>(chat, if (archived) 1 else 0),
+        )
+        changed()
+    }
+
+    /** Sets [chat]'s mute: 0 not muted, [MUTED_FOREVER], or a Unix time in ms. */
+    @Synchronized
+    fun setMutedUntil(
+        chat: String,
+        mutedUntil: Long,
+    ) {
+        val d = db ?: return
+        d.execSQL(
+            "INSERT INTO chats(chat, muted_until) VALUES(?, ?) ON CONFLICT(chat) DO UPDATE SET muted_until = excluded.muted_until",
+            arrayOf<Any>(chat, mutedUntil),
+        )
+        changed()
+    }
+
     /** Remembers a chat's display name from history sync (groups, saved contacts). */
     @Synchronized
     fun setChatName(
@@ -329,40 +371,62 @@ object MessageStore {
 
     // ------------------------------------------------------------------ reads
 
-    /** Chats ordered by most recent message, with their newest message and unread state. */
-    fun chats(): List<ChatSummary> {
+    /**
+     * The chat list, ordered by most recent message, with each chat's newest message, unread and
+     * muted state: the main list, or with [archived] the archived chats.
+     */
+    fun chats(archived: Boolean = false): List<ChatSummary> {
         val d = db ?: return emptyList()
+        val now = System.currentTimeMillis()
         val stored =
             d
                 .rawQuery(
                     """
-                    SELECT m.*,
+                    SELECT m.*, IFNULL(c.muted_until, 0) AS chat_muted_until,
                       EXISTS(SELECT 1 FROM messages u WHERE u.chat = m.chat AND u.from_me = 0
-                             AND u.ts > IFNULL((SELECT last_read FROM chats c WHERE c.chat = m.chat), 0)) AS unread
+                             AND u.ts > IFNULL(c.last_read, 0)) AS unread
                     FROM (SELECT chat, MAX(ts) AS newest FROM messages GROUP BY chat) t
                     JOIN messages m ON m.chat = t.chat AND m.ts = t.newest
+                    LEFT JOIN chats c ON c.chat = m.chat
+                    WHERE IFNULL(c.archived, 0) = ${if (archived) 1 else 0}
                     ORDER BY m.ts DESC
                     """.trimIndent(),
+                    // Inlined, not bound: a bound "0" is text, which never equals the integer 0.
                     null,
                 ).readAll {
                     ChatSummary(
                         it.getString(it.getColumnIndexOrThrow("chat")),
                         ChatDb.msg(it),
                         it.getInt(it.getColumnIndexOrThrow("unread")) == 1,
+                        muted = ChatState(mutedUntil = it.getLong(it.getColumnIndexOrThrow("chat_muted_until"))).mutedAt(now),
                     )
                 }
                 // Two messages with the same newest timestamp: keep one.
                 .distinctBy { it.chat }
-        val pending = pendingNow()
+        val pending = pendingNow().filter { chatState(it.chat).archived == archived }
         if (pending.isEmpty()) return stored
         // A chat whose only message is still sending (a brand-new chat) shows up too.
         val byChat = stored.associateBy { it.chat }.toMutableMap()
         for (p in pending) {
             val cur = byChat[p.chat]
-            if (cur == null || p.ts > cur.last.ts) byChat[p.chat] = ChatSummary(p.chat, p, cur?.unread ?: false)
+            if (cur == null || p.ts > cur.last.ts) {
+                byChat[p.chat] = ChatSummary(p.chat, p, cur?.unread ?: false, cur?.muted ?: chatState(p.chat).mutedAt(now))
+            }
         }
         return byChat.values.sortedByDescending { it.last.ts }
     }
+
+    /** How many chats with messages are archived (whether to offer the pull-down Archived row). */
+    fun archivedCount(): Int =
+        db
+            ?.rawQuery("SELECT COUNT(*) FROM chats c WHERE c.archived = 1 AND EXISTS(SELECT 1 FROM messages m WHERE m.chat = c.chat)", null)
+            ?.use { if (it.moveToFirst()) it.getInt(0) else 0 } ?: 0
+
+    /** [chat]'s archive and mute state. */
+    fun chatState(chat: String): ChatState =
+        db?.rawQuery("SELECT archived, muted_until FROM chats WHERE chat = ?", arrayOf(chat))?.use {
+            if (it.moveToFirst()) ChatState(it.getInt(0) == 1, it.getLong(1)) else ChatState()
+        } ?: ChatState()
 
     /** The newest [limit] messages of [chat], oldest first, including pending local echoes. */
     fun thread(
@@ -379,6 +443,10 @@ object MessageStore {
         val mine = pendingNow().filter { it.chat == chat }
         return if (mine.isEmpty()) stored else (stored + mine).sortedBy { it.ts }
     }
+
+    /** [chat]'s newest stored message, or null. */
+    fun newest(chat: String): Msg? =
+        db?.rawQuery("SELECT * FROM messages WHERE chat = ? ORDER BY ts DESC LIMIT 1", arrayOf(chat))?.readAll(ChatDb::msg)?.firstOrNull()
 
     /** One stored message, or null. */
     fun get(id: String): Msg? = db?.rawQuery("SELECT * FROM messages WHERE id = ?", arrayOf(id))?.readAll(ChatDb::msg)?.firstOrNull()
@@ -412,19 +480,23 @@ object MessageStore {
                         executeUpdateDelete()
                     }
                 execSQL("UPDATE messages SET sender = ? WHERE sender = ?", arrayOf(into, from))
+                val intoKnown = rawQuery("SELECT 1 FROM chats WHERE chat = ?", arrayOf(into)).use { it.moveToFirst() }
                 val state =
-                    rawQuery("SELECT last_read, name FROM chats WHERE chat = ?", arrayOf(from)).use {
-                        if (it.moveToFirst()) {
-                            it.getLong(0) to
-                                it.getString(1)
-                        } else {
-                            null
-                        }
+                    rawQuery("SELECT last_read, name, archived, muted_until FROM chats WHERE chat = ?", arrayOf(from)).use {
+                        if (it.moveToFirst()) listOf(it.getLong(0), it.getString(1), it.getInt(2), it.getLong(3)) else null
                     }
                 if (state != null) {
-                    setLastRead(this, into, state.first)
-                    if (state.second.isNotBlank()) {
-                        execSQL("UPDATE chats SET name = ? WHERE chat = ? AND name = ''", arrayOf(state.second, into))
+                    setLastRead(this, into, state[0] as Long)
+                    val name = state[1] as String
+                    if (name.isNotBlank()) {
+                        execSQL("UPDATE chats SET name = ? WHERE chat = ? AND name = ''", arrayOf(name, into))
+                    }
+                    // Archive and mute follow the chat being kept; the moved one's only if it had none.
+                    if (!intoKnown) {
+                        execSQL(
+                            "UPDATE chats SET archived = ?, muted_until = ? WHERE chat = ?",
+                            arrayOf<Any>(state[2] as Int, state[3] as Long, into),
+                        )
                     }
                     execSQL("DELETE FROM chats WHERE chat = ?", arrayOf(from))
                 }
