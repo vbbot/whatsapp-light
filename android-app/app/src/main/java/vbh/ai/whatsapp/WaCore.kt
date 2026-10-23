@@ -558,7 +558,9 @@ object WaCore : Listener {
             ),
         )
         if (!isGroup) resolve(chat)
-        if (!fromMe && MessageStore.openChat.value != chat) {
+        // Muted and archived chats stay quiet: the message is stored and shows as unread.
+        val quiet = MessageStore.chatState(chat).quietAt(System.currentTimeMillis())
+        if (!fromMe && !quiet && MessageStore.openChat.value != chat) {
             val title = MessageStore.title(chat)
             val n =
                 NotificationCompat
@@ -572,6 +574,65 @@ object WaCore : Listener {
             app.getSystemService(NotificationManager::class.java).notify(chat.hashCode(), n)
         }
     }
+
+    override fun onChatMuted(
+        chat: String,
+        mutedUntil: Long,
+    ) = MessageStore.setMutedUntil(chat, mutedUntil)
+
+    override fun onChatArchived(
+        chat: String,
+        archived: Boolean,
+    ) = MessageStore.setArchived(chat, archived)
+
+    /** Mutes [chat] until unmuted, or unmutes it, here and on every linked device. */
+    fun setMuted(
+        chat: String,
+        muted: Boolean,
+    ) {
+        val before = MessageStore.chatState(chat).mutedUntil
+        MessageStore.setMutedUntil(chat, if (muted) MUTED_FOREVER else 0)
+        if (muted) clearNotification(chat)
+        syncChatState("mute", revert = { MessageStore.setMutedUntil(chat, before) }) { it.setChatMuted(chat, muted) }
+    }
+
+    /** Archives or unarchives [chat] here and on every linked device. */
+    fun setArchived(
+        chat: String,
+        archived: Boolean,
+    ) {
+        val before = MessageStore.chatState(chat).archived
+        MessageStore.setArchived(chat, archived)
+        if (archived) clearNotification(chat)
+        val last = MessageStore.newest(chat)
+        syncChatState("archive", revert = { MessageStore.setArchived(chat, before) }) {
+            it.setChatArchived(chat, archived, last?.id.orEmpty(), last?.sender.orEmpty(), last?.ts ?: 0L, last?.fromMe ?: false)
+        }
+    }
+
+    /**
+     * Sends a chat-state change to WhatsApp in the background. The change is already shown; if
+     * sending fails it's undone with [revert] and the reason shown.
+     */
+    private fun syncChatState(
+        what: String,
+        revert: () -> Unit,
+        send: (Client) -> Unit,
+    ) {
+        val c = client
+        thread(name = "wa-chat-state") {
+            try {
+                if (c == null) error("not connected")
+                send(c)
+            } catch (e: Exception) {
+                revert()
+                WaState.error.value = "Couldn't $what the chat: ${e.message}"
+                WaState.log("$what failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun clearNotification(chat: String) = app.getSystemService(NotificationManager::class.java).cancel(chat.hashCode())
 
     override fun onMediaReady(
         id: String,

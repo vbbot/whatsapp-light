@@ -64,9 +64,6 @@ import android.graphics.Color as AColor
 
 internal const val LOADING_TEXT = "loading…"
 
-/** End padding of list rows: 0.5 gu of space plus the 2 gu track of the scrollbar drawn over the list. */
-private const val ROW_END_GU = 2.5f
-
 // ---------------------------------------------------------------- shared pieces
 
 /** Every screen paints true black explicitly; the theme does not. */
@@ -197,98 +194,6 @@ fun <T> rememberQuery(
                 .collect { value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { currentQuery.value() } }
         }
     return state.value
-}
-
-private var lastChatRows: List<Pair<ChatSummary, String>>? = null
-
-@Composable
-private fun ChatList() {
-    val changes by MessageStore.changes.collectAsState()
-    val names by MessageStore.names.collectAsState()
-    val phones by MessageStore.phones.collectAsState()
-    val connected by WaState.connected.collectAsState()
-    val syncing by History.syncing.collectAsState()
-    // Starts from the last result, so coming back to the list doesn't flash empty.
-    val rows =
-        rememberQuery(changes, names, phones, initial = lastChatRows) {
-            MessageStore.chats().map { it to MessageStore.title(it.chat) }.also { lastChatRows = it }
-        }
-    val listState = rememberLazyListState()
-    when {
-        rows == null -> {}
-
-        rows.isNotEmpty() -> {
-            Column(Modifier.fillMaxSize()) {
-                syncing?.let {
-                    Banner(
-                        if (it >
-                            0
-                        ) {
-                            "Syncing from your phone · %,d messages".format(it)
-                        } else {
-                            "Syncing messages from your phone…"
-                        },
-                    )
-                }
-                LightLazyScrollView(
-                    modifier = Modifier.weight(1f),
-                    scrollBarPosition = LightScrollBarPosition.Inside,
-                    uniformItemHeightGridUnits = 4.5f,
-                    listState = listState,
-                ) {
-                    items(rows, key = { it.first.chat }) { (summary, name) ->
-                        ChatRow(
-                            name = name,
-                            time = formatRowTime(summary.last.ts),
-                            unread = summary.unread,
-                            onOpen = { Nav.push(Screen.Thread(summary.chat)) },
-                        )
-                    }
-                }
-            }
-        }
-
-        syncing != null -> {
-            StatusText("Syncing messages from your phone…")
-        }
-
-        !connected -> {
-            StatusText(LOADING_TEXT)
-        }
-
-        else -> {
-            StatusText("No conversations. Tap the pencil to start one.")
-        }
-    }
-}
-
-@Composable
-private fun ChatRow(
-    name: String,
-    time: String,
-    unread: Boolean,
-    onOpen: () -> Unit,
-) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .lightClickable(onClickLabel = "Open chat with $name", onClick = onOpen)
-            // 12dp vertical padding fits six rows on the panel (same as Chats). The list's scrollbar
-            // is drawn over the rows, so the end leaves 0.5 gu plus its 2 gu track, as in Chats.
-            .padding(start = 0.5f.gridUnitsAsDp(), end = ROW_END_GU.gridUnitsAsDp(), top = 12.dp, bottom = 12.dp),
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            // The unread marker is a large asterisk in a fixed 1 gu slot so names never shift.
-            Box(Modifier.width(1f.gridUnitsAsDp())) {
-                if (unread) LightText(text = "*", variant = LightTextVariant.Heading)
-            }
-            Box(Modifier.width(0.25f.gridUnitsAsDp()))
-            Box(Modifier.weight(1f)) {
-                LightText(text = name, variant = LightTextVariant.Heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            LightText(text = time, variant = LightTextVariant.Fine)
-        }
-    }
 }
 
 @Composable

@@ -154,6 +154,8 @@ class MainActivity : ComponentActivity() {
                 is Screen.Contacts -> ContactsScreen(s.purpose)
                 is Screen.Number -> NumberScreen(s.purpose)
                 Screen.Settings -> SettingsScreen()
+                is Screen.ChatOptions -> ChatOptionsScreen(s.chat)
+                Screen.Archived -> ArchivedScreen()
                 is Screen.CallType -> CallTypeScreen(s.chat)
                 is Screen.MediaViewer -> MediaViewerScreen(s.id, s.path, s.backTo)
                 is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)

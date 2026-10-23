@@ -117,7 +117,7 @@ fun ThreadScreen(chat: String) {
     ScreenColumn {
         LightTopBar(
             leftButton = backButton("messages") { Nav.pop() },
-            center = LightTopBarCenter.Text(title),
+            center = LightTopBarCenter.Text(title, onClick = { Nav.push(Screen.ChatOptions(chat)) }),
         )
         Column(Modifier.weight(1f).fillMaxWidth()) {
             error?.let { Banner(it) }

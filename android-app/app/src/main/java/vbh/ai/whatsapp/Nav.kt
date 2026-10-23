@@ -34,6 +34,14 @@ sealed interface Screen {
 
     data object Settings : Screen
 
+    /** Mute, archive and the other actions for one chat (long-press it, or tap its name in the thread). */
+    data class ChatOptions(
+        val chat: String,
+    ) : Screen
+
+    /** The archived chats (pull down at the top of the chat list). */
+    data object Archived : Screen
+
     /** A message's photo (or a video's thumbnail) full screen; [path] is what it showed when opened. */
     data class MediaViewer(
         val id: String,

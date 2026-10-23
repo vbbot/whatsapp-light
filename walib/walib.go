@@ -63,6 +63,11 @@ type Listener interface {
 	// OnRemoteOrientation reports the orientation carried in the peer's video packets:
 	// clockwise quarter turns to draw their frames upright. Authoritative for rendering.
 	OnRemoteOrientation(callID string, quarterTurns int)
+	// OnChatMuted reports a chat's mute state, changed on another device or in the initial sync:
+	// mutedUntil is 0 (not muted), -1 (until unmuted) or a Unix time in ms.
+	OnChatMuted(chat string, mutedUntil int64)
+	// OnChatArchived reports a chat archived or unarchived on another device or in the initial sync.
+	OnChatArchived(chat string, archived bool)
 	// OnHistory delivers a batch of past messages, chat names and calls from the main phone
 	// (at link time, or answering RequestOlderMessages) as JSON; see historyBatch.
 	OnHistory(json string)
@@ -115,6 +120,8 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 		return nil, fmt.Errorf("load device: %w", err)
 	}
 	wa := whatsmeow.NewClient(device, wl.Sub("wa"))
+	// Report mute/archive state from the initial app-state sync too, not only later changes.
+	wa.EmitAppStateEventsOnFullSync = true
 	c := &Client{l: l, wa: wa}
 	// meowcaller must be created before Connect so its call handlers are installed first.
 	c.mc = meowcaller.NewClient(wa, meowcaller.WithLogger(logger))
@@ -129,6 +136,10 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 			c.handleReceipt(e)
 		case *events.HistorySync:
 			c.handleHistory(e)
+		case *events.Mute:
+			c.handleMute(e)
+		case *events.Archive:
+			c.handleArchive(e)
 		}
 	})
 	return c, nil

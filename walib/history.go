@@ -43,9 +43,12 @@ type historyMsg struct {
 }
 
 type historyChat struct {
-	Chat   string `json:"chat"`
-	Name   string `json:"name"`
-	Unread int    `json:"unread"`
+	Chat     string `json:"chat"`
+	Name     string `json:"name"`
+	Unread   int    `json:"unread"`
+	Archived bool   `json:"archived"`
+	// MutedUntil: 0 not muted, -1 until unmuted, else Unix ms.
+	MutedUntil int64 `json:"mutedUntil"`
 }
 
 type historyCall struct {
@@ -85,7 +88,13 @@ func (c *Client) handleHistory(e *events.HistorySync) {
 		if name == "" {
 			name = conv.GetDisplayName()
 		}
-		b.Chats = append(b.Chats, historyChat{Chat: c.canonical(chat, mappings).String(), Name: name, Unread: int(conv.GetUnreadCount())})
+		b.Chats = append(b.Chats, historyChat{
+			Chat:       c.canonical(chat, mappings).String(),
+			Name:       name,
+			Unread:     int(conv.GetUnreadCount()),
+			Archived:   conv.GetArchived(),
+			MutedUntil: historyMutedUntil(conv.GetMuteEndTime()),
+		})
 		for _, hm := range conv.GetMessages() {
 			if m, ok := c.historyMessage(chat, hm.GetMessage(), pushNames, mappings); ok {
 				b.Messages = append(b.Messages, m)
