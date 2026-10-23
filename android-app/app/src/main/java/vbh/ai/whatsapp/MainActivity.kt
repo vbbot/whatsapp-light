@@ -2,11 +2,9 @@ package vbh.ai.whatsapp
 
 import android.Manifest
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -19,6 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -27,6 +26,13 @@ import com.thelightphone.sdk.ui.LightTheme
 import com.thelightphone.sdk.ui.LightThemeColors
 import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LocalHapticsEnabled
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+
+/** The splash gives up waiting after this and shows the app as it is (the status says why). */
+private const val SPLASH_MAX_MS = 8000L
 
 class MainActivity : ComponentActivity() {
     private var pendingCamera: ((Boolean) -> Unit)? = null
@@ -52,6 +58,16 @@ class MainActivity : ComponentActivity() {
                 mediaLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
             }
         }
+        MicGate.request = { block ->
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                block(true)
+            } else {
+                pendingMic = block
+                AppSettings.markAsked(Manifest.permission.RECORD_AUDIO)
+                micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+        Permissions.refresh(this)
         CameraGate.request = { block ->
             if (checkSelfPermission(Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 block(true)
@@ -68,23 +84,47 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var pendingMic: ((Boolean) -> Unit)? = null
+    private val micLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            Permissions.refresh(this)
+            pendingMic?.invoke(granted)
+            pendingMic = null
+        }
+
+    override fun onResume() {
+        super.onResume()
+        // Permissions may have changed in the system settings meanwhile.
+        Permissions.refresh(this)
+    }
+
+    /** Starts the connection, or restarts the service so it can claim the microphone once allowed. */
     private fun startCore() {
         ContextCompat.startForegroundService(this, Intent(this, WaService::class.java))
     }
 
     @androidx.compose.runtime.Composable
     private fun Root() {
-        val perms =
-            buildList {
-                add(Manifest.permission.RECORD_AUDIO)
-                if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
-            }.toTypedArray()
-        var denied by remember { mutableStateOf(false) }
-        val launcher =
-            rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
-                if (r[Manifest.permission.RECORD_AUDIO] == true) startCore() else denied = true
+        val granted by Permissions.granted.collectAsState()
+        val mic = Perm.MICROPHONE in granted
+        LaunchedEffect(mic) { startCore() }
+
+        // The splash stays until we know where to go: linked (chats) or not (pairing code).
+        val ready =
+            remember {
+                combine(WaState.linked, WaState.qr, WaState.status) { linked, qr, status ->
+                    linked == true || qr != null || status == "error"
+                }
             }
-        LaunchedEffect(Unit) { launcher.launch(perms) }
+        var splash by rememberSaveable { mutableStateOf(!(WaState.linked.value == true || WaState.qr.value != null)) }
+        if (splash) {
+            LaunchedEffect(Unit) {
+                delay(SPLASH_MIN_MS)
+                withTimeoutOrNull(SPLASH_MAX_MS) { ready.first { it } }
+                splash = false
+            }
+        }
+        val permissionsDone by AppSettings.permissionsDone.collectAsState()
 
         val qr by WaState.qr.collectAsState()
         val call by WaState.call.collectAsState()
@@ -97,8 +137,12 @@ class MainActivity : ComponentActivity() {
         Box(Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
             val c = call
             when {
-                denied -> {
-                    StatusText("Microphone access is needed for calls. Allow it in the app's permissions.")
+                splash -> {
+                    SplashScreen()
+                }
+
+                !permissionsDone -> {
+                    PermissionsScreen(firstRun = true) { AppSettings.setPermissionsDone() }
                 }
 
                 c != null && c.incoming && c.phase < 3 -> {
@@ -159,6 +203,7 @@ class MainActivity : ComponentActivity() {
                 is Screen.CallType -> CallTypeScreen(s.chat)
                 is Screen.MediaViewer -> MediaViewerScreen(s.id, s.path, s.backTo)
                 is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
+                Screen.Permissions -> PermissionsScreen(firstRun = false) { Nav.pop() }
             }
         }
     }

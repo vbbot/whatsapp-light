@@ -71,6 +71,7 @@ object WaCore : Listener {
                 client = c
                 Photos.downloader = { m -> c.downloadPhoto(m.id, m.mediaRef) }
                 ChatIdentity.canonical = { jid -> c.canonicalChat(jid) }
+                WaState.linked.value = c.isPaired
                 WaState.status.value = if (c.isPaired) "connecting…" else "waiting for QR…"
                 c.connect()
             } catch (e: Exception) {
@@ -204,30 +205,46 @@ object WaCore : Listener {
 
     // --- UI actions (run off the main thread; Go calls can block) ---
 
+    /** Calls [target]; asks for the microphone first if it isn't allowed yet. */
     fun call(
         target: String,
         withVideo: Boolean = false,
-    ) = bg {
-        WaState.error.value = null
-        val id = if (withVideo) client!!.callVideo(target.trim()) else client!!.call(target.trim())
-        CallLog.start(
-            id,
-            if (target.contains("@")) target.trim() else target.trim().removePrefix("+") + "@s.whatsapp.net",
-            incoming = false,
-            video = withVideo,
-        )
-        WaState.call.value =
-            CallUi(id, target.trim(), incoming = false, phase = 1, video = withVideo, localVideo = withVideo, remoteVideo = withVideo)
-        resolve(if (target.contains("@")) target.trim() else target.trim().removePrefix("+") + "@s.whatsapp.net")
+    ) = MicGate.withMic { ok ->
+        if (!ok) {
+            WaState.error.value = MicGate.NEEDED
+            return@withMic
+        }
+        bg {
+            WaState.error.value = null
+            val id = if (withVideo) client!!.callVideo(target.trim()) else client!!.call(target.trim())
+            CallLog.start(
+                id,
+                if (target.contains("@")) target.trim() else target.trim().removePrefix("+") + "@s.whatsapp.net",
+                incoming = false,
+                video = withVideo,
+            )
+            WaState.call.value =
+                CallUi(id, target.trim(), incoming = false, phase = 1, video = withVideo, localVideo = withVideo, remoteVideo = withVideo)
+            resolve(if (target.contains("@")) target.trim() else target.trim().removePrefix("+") + "@s.whatsapp.net")
+        }
     }
 
-    /** Answers; for a video call our camera turns on too (unless camera access was refused). */
+    /**
+     * Answers; for a video call our camera turns on too (unless camera access was refused). Without
+     * the microphone the call keeps ringing and the screen says why.
+     */
     fun answer(withCamera: Boolean = true) =
-        bg {
-            val c = WaState.call.value ?: return@bg
-            stopRing()
-            client!!.answer(c.id)
-            if (c.video) WaState.call.value = WaState.call.value?.copy(localVideo = withCamera, phase = maxOf(c.phase, 3))
+        MicGate.withMic { ok ->
+            if (!ok) {
+                WaState.error.value = MicGate.NEEDED
+                return@withMic
+            }
+            bg {
+                val c = WaState.call.value ?: return@bg
+                stopRing()
+                client!!.answer(c.id)
+                if (c.video) WaState.call.value = WaState.call.value?.copy(localVideo = withCamera, phase = maxOf(c.phase, 3))
+            }
         }
 
     // --- video ---
@@ -450,6 +467,7 @@ object WaCore : Listener {
 
     override fun onConnected(jid: String) {
         WaState.qr.value = null
+        WaState.linked.value = true
         WaState.connected.value = true
         WaState.status.value = "connected"
         WaState.ownNumber.value = client?.ownNumber().orEmpty()
