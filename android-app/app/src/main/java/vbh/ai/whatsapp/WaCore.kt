@@ -585,6 +585,25 @@ object WaCore : Listener {
         archived: Boolean,
     ) = MessageStore.setArchived(chat, archived)
 
+    override fun onChatPinned(
+        chat: String,
+        pinnedAt: Long,
+    ) = MessageStore.setPinnedAt(chat, pinnedAt)
+
+    /** Pins or unpins [chat] here and on every linked device; refuses a pin past WhatsApp's limit. */
+    fun setPinned(
+        chat: String,
+        pinned: Boolean,
+    ) {
+        val before = MessageStore.chatState(chat).pinnedAt
+        if (pinned && before == 0L && MessageStore.pinnedCount() >= MAX_PINNED) {
+            WaState.error.value = "You can pin up to $MAX_PINNED chats. Unpin one first."
+            return
+        }
+        MessageStore.setPinnedAt(chat, if (pinned) System.currentTimeMillis() else 0)
+        syncChatState("pin", revert = { MessageStore.setPinnedAt(chat, before) }) { it.setChatPinned(chat, pinned) }
+    }
+
     /** Mutes [chat] until unmuted, or unmutes it, here and on every linked device. */
     fun setMuted(
         chat: String,
@@ -601,11 +620,15 @@ object WaCore : Listener {
         chat: String,
         archived: Boolean,
     ) {
-        val before = MessageStore.chatState(chat).archived
+        val before = MessageStore.chatState(chat)
         MessageStore.setArchived(chat, archived)
         if (archived) clearNotification(chat)
         val last = MessageStore.newest(chat)
-        syncChatState("archive", revert = { MessageStore.setArchived(chat, before) }) {
+        val revert = {
+            MessageStore.setArchived(chat, before.archived)
+            MessageStore.setPinnedAt(chat, before.pinnedAt) // archiving unpinned it
+        }
+        syncChatState("archive", revert = revert) {
             it.setChatArchived(chat, archived, last?.id.orEmpty(), last?.sender.orEmpty(), last?.ts ?: 0L, last?.fromMe ?: false)
         }
     }

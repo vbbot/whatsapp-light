@@ -65,13 +65,27 @@ data class ChatSummary(
     val last: Msg,
     val unread: Boolean,
     val muted: Boolean = false,
-)
+    /** When the chat was pinned (Unix ms), or 0. */
+    val pinnedAt: Long = 0,
+) {
+    val pinned: Boolean get() = pinnedAt > 0
+}
+
+/** Chat list order: pinned chats first, most recently pinned first, then by latest message. */
+private val listOrder = compareByDescending<ChatSummary> { it.pinnedAt }.thenByDescending { it.last.ts }
+
+/** WhatsApp allows this many pinned chats. */
+const val MAX_PINNED = 3
 
 /** A chat's archive and mute state; [mutedUntil] is 0 (not muted), [MUTED_FOREVER] or a Unix time in ms. */
 data class ChatState(
     val archived: Boolean = false,
     val mutedUntil: Long = 0,
+    /** When the chat was pinned (Unix ms), or 0. */
+    val pinnedAt: Long = 0,
 ) {
+    val pinned: Boolean get() = pinnedAt > 0
+
     fun mutedAt(now: Long): Boolean = mutedUntil == MUTED_FOREVER || mutedUntil > now
 
     /** Muted or archived: new messages don't notify. */
@@ -305,6 +319,22 @@ object MessageStore {
             "INSERT INTO chats(chat, archived) VALUES(?, ?) ON CONFLICT(chat) DO UPDATE SET archived = excluded.archived",
             arrayOf<Any>(chat, if (archived) 1 else 0),
         )
+        // Archiving unpins, as WhatsApp does.
+        if (archived) d.execSQL("UPDATE chats SET pinned_at = 0 WHERE chat = ?", arrayOf(chat))
+        changed()
+    }
+
+    /** Pins [chat] (when, Unix ms) or unpins it (0). */
+    @Synchronized
+    fun setPinnedAt(
+        chat: String,
+        pinnedAt: Long,
+    ) {
+        val d = db ?: return
+        d.execSQL(
+            "INSERT INTO chats(chat, pinned_at) VALUES(?, ?) ON CONFLICT(chat) DO UPDATE SET pinned_at = excluded.pinned_at",
+            arrayOf<Any>(chat, pinnedAt),
+        )
         changed()
     }
 
@@ -382,14 +412,14 @@ object MessageStore {
             d
                 .rawQuery(
                     """
-                    SELECT m.*, IFNULL(c.muted_until, 0) AS chat_muted_until,
+                    SELECT m.*, IFNULL(c.muted_until, 0) AS chat_muted_until, IFNULL(c.pinned_at, 0) AS chat_pinned_at,
                       EXISTS(SELECT 1 FROM messages u WHERE u.chat = m.chat AND u.from_me = 0
                              AND u.ts > IFNULL(c.last_read, 0)) AS unread
                     FROM (SELECT chat, MAX(ts) AS newest FROM messages GROUP BY chat) t
                     JOIN messages m ON m.chat = t.chat AND m.ts = t.newest
                     LEFT JOIN chats c ON c.chat = m.chat
                     WHERE IFNULL(c.archived, 0) = ${if (archived) 1 else 0}
-                    ORDER BY m.ts DESC
+                    ORDER BY chat_pinned_at DESC, m.ts DESC
                     """.trimIndent(),
                     // Inlined, not bound: a bound "0" is text, which never equals the integer 0.
                     null,
@@ -399,6 +429,7 @@ object MessageStore {
                         ChatDb.msg(it),
                         it.getInt(it.getColumnIndexOrThrow("unread")) == 1,
                         muted = ChatState(mutedUntil = it.getLong(it.getColumnIndexOrThrow("chat_muted_until"))).mutedAt(now),
+                        pinnedAt = it.getLong(it.getColumnIndexOrThrow("chat_pinned_at")),
                     )
                 }
                 // Two messages with the same newest timestamp: keep one.
@@ -410,10 +441,11 @@ object MessageStore {
         for (p in pending) {
             val cur = byChat[p.chat]
             if (cur == null || p.ts > cur.last.ts) {
-                byChat[p.chat] = ChatSummary(p.chat, p, cur?.unread ?: false, cur?.muted ?: chatState(p.chat).mutedAt(now))
+                val state = chatState(p.chat)
+                byChat[p.chat] = ChatSummary(p.chat, p, cur?.unread ?: false, state.mutedAt(now), state.pinnedAt)
             }
         }
-        return byChat.values.sortedByDescending { it.last.ts }
+        return byChat.values.sortedWith(listOrder)
     }
 
     /** How many chats with messages are archived (whether to offer the pull-down Archived row). */
@@ -424,9 +456,18 @@ object MessageStore {
 
     /** [chat]'s archive and mute state. */
     fun chatState(chat: String): ChatState =
-        db?.rawQuery("SELECT archived, muted_until FROM chats WHERE chat = ?", arrayOf(chat))?.use {
-            if (it.moveToFirst()) ChatState(it.getInt(0) == 1, it.getLong(1)) else ChatState()
+        db?.rawQuery("SELECT archived, muted_until, pinned_at FROM chats WHERE chat = ?", arrayOf(chat))?.use {
+            if (it.moveToFirst()) ChatState(it.getInt(0) == 1, it.getLong(1), it.getLong(2)) else ChatState()
         } ?: ChatState()
+
+    /** How many chats are pinned (archived chats can't be). */
+    fun pinnedCount(): Int =
+        db
+            ?.rawQuery(
+                "SELECT COUNT(*) FROM chats WHERE pinned_at > 0 AND archived = 0",
+                null,
+            )?.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+            ?: 0
 
     /** The newest [limit] messages of [chat], oldest first, including pending local echoes. */
     fun thread(
@@ -482,8 +523,8 @@ object MessageStore {
                 execSQL("UPDATE messages SET sender = ? WHERE sender = ?", arrayOf(into, from))
                 val intoKnown = rawQuery("SELECT 1 FROM chats WHERE chat = ?", arrayOf(into)).use { it.moveToFirst() }
                 val state =
-                    rawQuery("SELECT last_read, name, archived, muted_until FROM chats WHERE chat = ?", arrayOf(from)).use {
-                        if (it.moveToFirst()) listOf(it.getLong(0), it.getString(1), it.getInt(2), it.getLong(3)) else null
+                    rawQuery("SELECT last_read, name, archived, muted_until, pinned_at FROM chats WHERE chat = ?", arrayOf(from)).use {
+                        if (it.moveToFirst()) listOf(it.getLong(0), it.getString(1), it.getInt(2), it.getLong(3), it.getLong(4)) else null
                     }
                 if (state != null) {
                     setLastRead(this, into, state[0] as Long)
@@ -491,11 +532,11 @@ object MessageStore {
                     if (name.isNotBlank()) {
                         execSQL("UPDATE chats SET name = ? WHERE chat = ? AND name = ''", arrayOf(name, into))
                     }
-                    // Archive and mute follow the chat being kept; the moved one's only if it had none.
+                    // Archive, mute and pin follow the chat being kept; the moved one's only if it had none.
                     if (!intoKnown) {
                         execSQL(
-                            "UPDATE chats SET archived = ?, muted_until = ? WHERE chat = ?",
-                            arrayOf<Any>(state[2] as Int, state[3] as Long, into),
+                            "UPDATE chats SET archived = ?, muted_until = ?, pinned_at = ? WHERE chat = ?",
+                            arrayOf<Any>(state[2] as Int, state[3] as Long, state[4] as Long, into),
                         )
                     }
                     execSQL("DELETE FROM chats WHERE chat = ?", arrayOf(from))

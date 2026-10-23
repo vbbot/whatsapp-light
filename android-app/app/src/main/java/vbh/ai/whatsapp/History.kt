@@ -23,6 +23,7 @@ data class HistoryChat(
     val unread: Int,
     val archived: Boolean = false,
     val mutedUntil: Long = 0,
+    val pinnedAt: Long = 0,
 )
 
 /**
@@ -72,7 +73,13 @@ object History {
         val chats =
             o.optJSONArray("chats").objects().associate {
                 it.getString("chat") to
-                    HistoryChat(it.optString("name"), it.optInt("unread"), it.optBoolean("archived"), it.optLong("mutedUntil"))
+                    HistoryChat(
+                        it.optString("name"),
+                        it.optInt("unread"),
+                        it.optBoolean("archived"),
+                        it.optLong("mutedUntil"),
+                        it.optLong("pinnedAt"),
+                    )
             }
         val raw =
             o.optJSONArray("messages").objects().map {
@@ -115,6 +122,7 @@ object History {
                     // authority, and a batch that leaves a field out mustn't undo them.
                     if (info.archived) MessageStore.setArchived(chat, true)
                     if (info.mutedUntil != 0L) MessageStore.setMutedUntil(chat, info.mutedUntil)
+                    if (info.pinnedAt > 0L && !info.archived) MessageStore.setPinnedAt(chat, info.pinnedAt)
                 }
             }
         }

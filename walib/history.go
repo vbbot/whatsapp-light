@@ -49,6 +49,8 @@ type historyChat struct {
 	Archived bool   `json:"archived"`
 	// MutedUntil: 0 not muted, -1 until unmuted, else Unix ms.
 	MutedUntil int64 `json:"mutedUntil"`
+	// PinnedAt: 0 not pinned, else when it was pinned (Unix ms).
+	PinnedAt int64 `json:"pinnedAt"`
 }
 
 type historyCall struct {
@@ -94,6 +96,7 @@ func (c *Client) handleHistory(e *events.HistorySync) {
 			Unread:     int(conv.GetUnreadCount()),
 			Archived:   conv.GetArchived(),
 			MutedUntil: historyMutedUntil(conv.GetMuteEndTime()),
+			PinnedAt:   historyPinnedAt(conv.GetPinned()),
 		})
 		for _, hm := range conv.GetMessages() {
 			if m, ok := c.historyMessage(chat, hm.GetMessage(), pushNames, mappings); ok {

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -22,8 +23,8 @@ import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.lightClickable
 
 /**
- * One chat's options: its name and number centred, then a stack of full-width toggles (MUTE /
- * UNMUTE, ARCHIVE / UNARCHIVE), and a bottom bar with only ✕ to close. Each toggle shows the
+ * One chat's options: its name and number centred, then a stack of full-width toggles (PIN /
+ * UNPIN, MUTE / UNMUTE, ARCHIVE / UNARCHIVE), and a bottom bar with only ✕ to close. Each toggle shows the
  * current state and flips it here and on the user's other devices; the screen stays open so
  * the change is visible.
  */
@@ -37,7 +38,12 @@ fun ChatOptionsScreen(chat: String) {
     // The number as a second line, when it isn't already the title (unsaved contacts).
     val number = (phones[chat] ?: displayNumber(chat)).takeIf { it.isNotBlank() && it != title }
 
+    val error by WaState.error.collectAsState()
+    // A refusal or failed change shows here while it's relevant, not after leaving.
+    DisposableEffect(Unit) { onDispose { WaState.error.value = null } }
+
     ScreenColumn {
+        error?.let { Banner(it) }
         // The name block sits near the middle; the toggles are centred between it and the bar.
         Spacer(Modifier.weight(21f))
         Column(Modifier.fillMaxWidth().padding(horizontal = 1.5f.gridUnitsAsDp()), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -65,6 +71,8 @@ fun ChatOptionsScreen(chat: String) {
             verticalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // Archived chats can't be pinned (archiving unpins).
+            if (!state.archived) ToggleButton(if (state.pinned) "UNPIN" else "PIN") { WaCore.setPinned(chat, !state.pinned) }
             ToggleButton(if (muted) "UNMUTE" else "MUTE") { WaCore.setMuted(chat, !muted) }
             ToggleButton(if (state.archived) "UNARCHIVE" else "ARCHIVE") { WaCore.setArchived(chat, !state.archived) }
         }

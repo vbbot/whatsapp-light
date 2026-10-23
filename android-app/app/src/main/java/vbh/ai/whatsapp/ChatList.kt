@@ -1,6 +1,7 @@
 package vbh.ai.whatsapp
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -30,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -37,6 +40,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
@@ -49,6 +53,7 @@ import com.thelightphone.sdk.ui.LightLazyScrollView
 import com.thelightphone.sdk.ui.LightScrollBarPosition
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextVariant
+import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LightTopBar
 import com.thelightphone.sdk.ui.LightTopBarCenter
 import com.thelightphone.sdk.ui.LocalHapticsEnabled
@@ -166,6 +171,7 @@ private fun ChatRows(
                     time = formatRowTime(summary.last.ts),
                     unread = summary.unread,
                     muted = summary.muted,
+                    pinned = summary.pinned,
                     onOpen = { Nav.push(Screen.Thread(summary.chat)) },
                     onOptions = { Nav.push(Screen.ChatOptions(summary.chat)) },
                 )
@@ -284,13 +290,14 @@ private fun rememberArchivedReveal(
     }
 }
 
-/** One chat in a list: unread `*`, name, muted icon, time. Tap opens it; long-press opens its options. */
+/** One chat in a list: unread `*`, name, pin and muted markers, time. Tap opens it; long-press opens its options. */
 @Composable
 private fun ChatRow(
     name: String,
     time: String,
     unread: Boolean,
     muted: Boolean,
+    pinned: Boolean,
     onOpen: () -> Unit,
     onOptions: () -> Unit,
 ) {
@@ -317,6 +324,7 @@ private fun ChatRow(
                 LightText(text = name, variant = LightTextVariant.Heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()), verticalAlignment = Alignment.CenterVertically) {
+                if (pinned) PinMarker()
                 if (muted) LightIcon(LightIcons.SPEAKER_MUTED, size = MUTED_ICON_GU, contentDescription = "Muted")
                 LightText(text = time, variant = LightTextVariant.Fine)
             }
@@ -326,6 +334,17 @@ private fun ChatRow(
 
 /** The muted icon's size: about the height of the row's `Fine` time. */
 private const val MUTED_ICON_GU = 0.9f
+
+/** A small outline pushpin (the SDK has none), the size of the muted icon, in the text colour. */
+@Composable
+private fun PinMarker() {
+    Image(
+        painter = painterResource(R.drawable.ic_pin),
+        contentDescription = "Pinned",
+        colorFilter = ColorFilter.tint(LightThemeTokens.colors.content),
+        modifier = Modifier.size(MUTED_ICON_GU.gridUnitsAsDp()),
+    )
+}
 
 /**
  * Tap and, optionally, long-press, with the Light haptic on each (when the user has haptics on)

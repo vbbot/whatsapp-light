@@ -97,6 +97,40 @@ class ChatStateTest {
         assertEquals(ChatState(true, MUTED_FOREVER), MessageStore.chatState("a@lid"))
     }
 
+    @Test fun pinnedChatsComeFirstMostRecentPinFirst() {
+        MessageStore.addAll(listOf(m("1", "a@lid", 10), m("2", "b@lid", 20), m("3", "c@lid", 30)))
+        MessageStore.setPinnedAt("a@lid", 100)
+        MessageStore.setPinnedAt("b@lid", 200)
+        val rows = MessageStore.chats()
+        assertEquals(listOf("b@lid", "a@lid", "c@lid"), rows.map { it.chat })
+        assertTrue(rows[0].pinned && rows[1].pinned && !rows[2].pinned)
+        MessageStore.setPinnedAt("b@lid", 0)
+        assertEquals(listOf("a@lid", "c@lid", "b@lid"), MessageStore.chats().map { it.chat })
+    }
+
+    @Test fun archivingUnpinsAndArchivedChatsDontCount() {
+        MessageStore.addAll(listOf(m("1", "a@lid", 10), m("2", "b@lid", 20)))
+        MessageStore.setPinnedAt("a@lid", 100)
+        MessageStore.setPinnedAt("b@lid", 200)
+        assertEquals(2, MessageStore.pinnedCount())
+        MessageStore.setArchived("a@lid", true)
+        assertEquals(ChatState(archived = true), MessageStore.chatState("a@lid"))
+        assertEquals(1, MessageStore.pinnedCount())
+    }
+
+    @Test fun historyPinsButNotArchivedChats() {
+        val json = { chat: String, archived: Boolean ->
+            """{"onDemand":false,"type":"RECENT","progress":10,""" +
+                """"chats":[{"chat":"$chat","name":"","unread":0,"archived":$archived,"pinnedAt":5000}],""" +
+                """"messages":[{"chat":"$chat","sender":"$chat","senderName":"","id":"$chat-1","text":"hi","ts":10,""" +
+                """"fromMe":false,"isGroup":false,"status":0,"media":""}],"calls":[]}"""
+        }
+        History.import(History.parse(json("a@lid", false)))
+        History.import(History.parse(json("b@lid", true)))
+        assertEquals(5000L, MessageStore.chatState("a@lid").pinnedAt)
+        assertEquals(0L, MessageStore.chatState("b@lid").pinnedAt)
+    }
+
     @Test fun upgradesVersionTwoDatabase() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val file =
@@ -122,7 +156,9 @@ class ChatStateTest {
         MessageStore.open(upgraded)
         assertEquals(ChatState(), MessageStore.chatState("a@lid"))
         MessageStore.setArchived("a@lid", true)
+        MessageStore.setPinnedAt("x@lid", 7)
         assertTrue(MessageStore.chatState("a@lid").archived)
+        assertEquals(7L, MessageStore.chatState("x@lid").pinnedAt)
         upgraded.close()
         MessageStore.open(db)
     }

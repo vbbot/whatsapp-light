@@ -31,6 +31,32 @@ func (c *Client) handleArchive(e *events.Archive) {
 	c.l.OnChatArchived(c.canonical(e.JID, nil).String(), e.Action.GetArchived())
 }
 
+func (c *Client) handlePin(e *events.Pin) {
+	at := int64(0)
+	if e.Action.GetPinned() {
+		at = e.Timestamp.UnixMilli()
+		if at <= 0 {
+			at = time.Now().UnixMilli()
+		}
+	}
+	c.l.OnChatPinned(c.canonical(e.JID, nil).String(), at)
+}
+
+// historyPinnedAt converts a history-sync conversation's pin time (Unix seconds, 0 if not
+// pinned) to Unix ms.
+func historyPinnedAt(pinned uint32) int64 { return int64(pinned) * 1000 }
+
+// SetChatPinned pins or unpins chat on every linked device.
+func (c *Client) SetChatPinned(chat string, pinned bool) error {
+	jid, err := types.ParseJID(chat)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return c.wa.SendAppState(ctx, appstate.BuildPin(jid, pinned))
+}
+
 // historyMutedUntil converts a history-sync conversation's muteEndTime. It's unsigned, so
 // "until unmuted" arrives as a far-future time; seconds and milliseconds both occur.
 func historyMutedUntil(muteEndTime uint64) int64 {
