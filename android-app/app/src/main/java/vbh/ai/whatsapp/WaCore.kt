@@ -70,6 +70,7 @@ object WaCore : Listener {
                 c.setMediaDir(mediaDir().absolutePath)
                 client = c
                 Photos.downloader = { m -> c.downloadPhoto(m.id, m.mediaRef) }
+                ChatIdentity.canonical = { jid -> c.canonicalChat(jid) }
                 WaState.status.value = if (c.isPaired) "connecting…" else "waiting for QR…"
                 c.connect()
             } catch (e: Exception) {
@@ -457,7 +458,10 @@ object WaCore : Listener {
             pairing = false
             History.linked()
         }
-        resolveAllChats()
+        thread(name = "wa-merge") {
+            ChatIdentity.mergeDuplicates()
+            resolveAllChats()
+        }
         loadContacts()
     }
 
@@ -629,7 +633,9 @@ object WaCore : Listener {
     override fun onHistory(json: String) {
         try {
             val batch = History.receive(json)
-            resolveAll(batch.chats.keys.filterNot { it.endsWith("@g.us") })
+            // A batch can bring the mappings that join a person's two addresses.
+            val merged = ChatIdentity.mergeDuplicates()
+            resolveAll(batch.chats.keys.filterNot { it.endsWith("@g.us") } + merged)
         } catch (e: Exception) {
             WaState.log("history import failed: ${e.message}")
         }

@@ -391,6 +391,57 @@ object MessageStore {
     fun oldest(chat: String): Msg? =
         db?.rawQuery("SELECT * FROM messages WHERE chat = ? ORDER BY ts ASC LIMIT 1", arrayOf(chat))?.readAll(ChatDb::msg)?.firstOrNull()
 
+    /**
+     * Moves everything stored under [from] onto [into]: one person's two addresses become one chat
+     * (see [ChatIdentity]). Their messages, their name as a sender, the read position (the later of
+     * the two) and the chat name (kept from [into] if it has one). Returns whether anything moved.
+     */
+    @Synchronized
+    fun mergeChat(
+        from: String,
+        into: String,
+    ): Boolean {
+        val d = db ?: return false
+        if (from == into) return false
+        val moved =
+            d.tx {
+                val n =
+                    compileStatement("UPDATE messages SET chat = ? WHERE chat = ?").run {
+                        bindString(1, into)
+                        bindString(2, from)
+                        executeUpdateDelete()
+                    }
+                execSQL("UPDATE messages SET sender = ? WHERE sender = ?", arrayOf(into, from))
+                val state =
+                    rawQuery("SELECT last_read, name FROM chats WHERE chat = ?", arrayOf(from)).use {
+                        if (it.moveToFirst()) {
+                            it.getLong(0) to
+                                it.getString(1)
+                        } else {
+                            null
+                        }
+                    }
+                if (state != null) {
+                    setLastRead(this, into, state.first)
+                    if (state.second.isNotBlank()) {
+                        execSQL("UPDATE chats SET name = ? WHERE chat = ? AND name = ''", arrayOf(state.second, into))
+                    }
+                    execSQL("DELETE FROM chats WHERE chat = ?", arrayOf(from))
+                }
+                n > 0 || state != null
+            }
+        if (moved) changed()
+        return moved
+    }
+
+    /** Every chat address we hold anything for: messages or chat state (read position, name). */
+    fun knownChats(): Set<String> =
+        db
+            ?.rawQuery("SELECT chat FROM messages UNION SELECT chat FROM chats", null)
+            ?.readAll { it.getString(0) }
+            .orEmpty()
+            .toSet()
+
     /** All chat IDs (for resolving names and the contact pickers). */
     fun chatIds(): List<String> = db?.rawQuery("SELECT DISTINCT chat FROM messages", null)?.readAll { it.getString(0) }.orEmpty()
 
