@@ -62,9 +62,14 @@ object WaCore : Listener {
         AppSettings.init(app)
         CallLog.init(app)
         createChannels()
+        connect()
+    }
+
+    /** Opens the session store and connects, showing a pairing code if this phone isn't linked. */
+    private fun connect() {
         thread(name = "wa-connect") {
             try {
-                val c = Client(File(app.filesDir, "wa.db").absolutePath, this)
+                val c = Client(sessionDb().absolutePath, this)
                 c.setSpeaker(audio)
                 c.setVideoRenderer(video)
                 c.setMediaDir(mediaDir().absolutePath)
@@ -75,11 +80,70 @@ object WaCore : Listener {
                 WaState.status.value = if (c.isPaired) "connecting…" else "waiting for QR…"
                 c.connect()
             } catch (e: Exception) {
+                // A refused session is handled by onLoggedOut, which links again.
+                if (e.message == "logged out") return@thread
                 WaState.error.value = e.message
                 WaState.status.value = "error"
                 WaState.log("connect failed: ${e.message}")
             }
         }
+    }
+
+    private fun sessionDb() = File(app.filesDir, "wa.db")
+
+    /**
+     * Logs out from Settings: unlinks this phone from the account, then deletes everything stored
+     * here and shows a new pairing code. Needs a connection; on failure nothing is deleted.
+     */
+    fun logOut(onFailure: (String) -> Unit) =
+        thread(name = "wa-logout") {
+            val c = client
+            try {
+                if (c == null) error("not connected")
+                loggingOut = true
+                c.logout()
+                relink(notice = null)
+            } catch (e: Exception) {
+                loggingOut = false
+                WaState.log("log out failed: ${e.message}")
+                onFailure(e.message ?: "unknown error")
+            }
+        }
+
+    @Volatile private var loggingOut = false
+
+    /**
+     * The session has ended (logged out here or by WhatsApp): closes the client, deletes the
+     * session, messages, calls and media, and connects afresh so a new pairing code shows.
+     */
+    @Synchronized
+    private fun relink(notice: String?) {
+        val old = client
+        client = null
+        Photos.downloader = null
+        ChatIdentity.canonical = null
+        runCatching { old?.close() }.onFailure { WaState.log("close failed: ${it.message}") }
+        stopRing()
+        WaState.call.value = null
+        app.getSystemService(NotificationManager::class.java).cancelAll()
+        MessageStore.clearAll()
+        CallLog.clearAll()
+        Photos.states.value = emptyMap()
+        History.syncing.value = null
+        mediaDir().deleteRecursively()
+        listOf("", "-wal", "-shm", "-journal").forEach { File(sessionDb().path + it).delete() }
+        WaState.loggedOutNotice.value = notice
+        WaState.error.value = null
+        WaState.qr.value = null
+        WaState.linked.value = false
+        WaState.connected.value = false
+        WaState.ownNumber.value = ""
+        WaState.contacts.value = emptyList()
+        WaState.contactsLoaded.value = false
+        WaState.status.value = "logged out"
+        Nav.reset()
+        loggingOut = false
+        connect()
     }
 
     fun serviceNotification(): Notification =
@@ -467,6 +531,7 @@ object WaCore : Listener {
 
     override fun onConnected(jid: String) {
         WaState.qr.value = null
+        WaState.loggedOutNotice.value = null
         WaState.linked.value = true
         WaState.connected.value = true
         WaState.status.value = "connected"
@@ -481,6 +546,13 @@ object WaCore : Listener {
             resolveAllChats()
         }
         loadContacts()
+    }
+
+    override fun onLoggedOut(reason: Long) {
+        WaState.log("logged out by WhatsApp ($reason)")
+        // Our own logout also ends the session; it relinks itself.
+        if (loggingOut) return
+        thread(name = "wa-relink") { relink(loggedOutNotice(reason.toInt())) }
     }
 
     override fun onDisconnected() {

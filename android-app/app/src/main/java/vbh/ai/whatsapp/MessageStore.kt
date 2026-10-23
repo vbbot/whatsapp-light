@@ -130,6 +130,26 @@ object MessageStore {
         changes.value++
     }
 
+    /** Deletes every message and chat, and forgets names and numbers (logging out). */
+    @Synchronized
+    fun clearAll() {
+        db?.let { d ->
+            d.beginTransaction()
+            try {
+                d.delete("messages", null, null)
+                d.delete("chats", null, null)
+                d.setTransactionSuccessful()
+            } finally {
+                d.endTransaction()
+            }
+        }
+        pending.clear()
+        earlyReceipts.clear()
+        names.value = emptyMap()
+        phones.value = emptyMap()
+        changes.value++
+    }
+
     /** Pending echoes, copied under the lock (reads don't take it; SQLite handles its own). */
     @Synchronized
     private fun pendingNow(): List<Msg> = pending.values.toList()
