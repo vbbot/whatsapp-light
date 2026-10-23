@@ -46,6 +46,9 @@ data class CallUi(
 object WaState {
     val status = MutableStateFlow("Starting…")
     val qr = MutableStateFlow<String?>(null)
+
+    /** Whether this device is linked to a WhatsApp account; null until the session store is read. */
+    val linked = MutableStateFlow<Boolean?>(null)
     val connected = MutableStateFlow(false)
     val ownNumber = MutableStateFlow("")
     val contacts = MutableStateFlow<List<Contact>>(emptyList())

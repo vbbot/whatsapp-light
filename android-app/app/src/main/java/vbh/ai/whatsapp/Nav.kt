@@ -34,6 +34,8 @@ sealed interface Screen {
 
     data object Settings : Screen
 
+    data object Permissions : Screen
+
     /** Mute, archive and the other actions for one chat (long-press it, or tap its name in the thread). */
     data class ChatOptions(
         val chat: String,

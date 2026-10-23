@@ -1,12 +1,18 @@
 package vbh.ai.whatsapp
 
+import android.Manifest
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.PowerManager
 
-/** Foreground service that keeps the process (and the WhatsApp connection) alive. */
+/**
+ * Foreground service that keeps the process (and the WhatsApp connection) alive. It runs as a
+ * messaging service, and also as a microphone service once the microphone is allowed, so calls
+ * keep their audio with the screen off. Started again after the microphone is granted.
+ */
 class WaService : Service() {
     private var wake: PowerManager.WakeLock? = null
 
@@ -16,7 +22,19 @@ class WaService : Service() {
         startId: Int,
     ): Int {
         WaCore.start(applicationContext)
-        startForeground(1, WaCore.serviceNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        val messaging = ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
+        val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        try {
+            startForeground(
+                1,
+                WaCore.serviceNotification(),
+                if (mic) messaging or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else messaging,
+            )
+        } catch (e: SecurityException) {
+            // A restart from the background can't claim the microphone; messaging still runs.
+            WaState.log("foreground service without microphone: ${e.message}")
+            startForeground(1, WaCore.serviceNotification(), messaging)
+        }
         if (wake == null) {
             wake =
                 (getSystemService(POWER_SERVICE) as PowerManager)

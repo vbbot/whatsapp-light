@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="art/logo-white.svg">
+    <img src="art/logo-black.svg" alt="WhatsApp Light" width="45%">
+  </picture>
+</p>
+
 # WhatsApp for the Light Phone III
 
 An unofficial WhatsApp client for the Light Phone III, built with the Light SDK's UI components.
@@ -51,6 +58,7 @@ secrets:
 
 - `android-app/` Android app (Kotlin, Compose)
 - `walib/` Go library bridging the app to WhatsApp, built with gomobile
+- `art/` logo
 - `meowcaller/` vendored [meowcaller](https://github.com/purpshell/meowcaller) with local patches
   (`PATCHES-wa-poc.md`)
 
@@ -58,4 +66,5 @@ secrets:
 
 [hypermeow](https://github.com/polymorfa/hypermeow) (a [whatsmeow](https://github.com/tulir/whatsmeow)
 fork), [meowcaller](https://github.com/purpshell/meowcaller),
-[Light SDK](https://github.com/lightphone/light-sdk).
+[Light SDK](https://github.com/lightphone/light-sdk), and [Chats](https://github.com/fenleon/chats) for the
+typography and UI/UX inspiration.

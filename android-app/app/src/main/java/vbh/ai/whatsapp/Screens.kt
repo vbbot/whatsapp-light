@@ -624,6 +624,8 @@ fun SettingsScreen() {
     val status by WaState.status.collectAsState()
     val own by WaState.ownNumber.collectAsState()
     val seenStatus by AppSettings.seenStatus.collectAsState()
+    val granted by Permissions.granted.collectAsState()
+    val missing = Perm.entries.count { it !in granted }
     ScreenColumn {
         LightTopBar(
             leftButton =
@@ -645,6 +647,10 @@ fun SettingsScreen() {
                     subtitle = "let people see when you've read their messages",
                     onToggle = { AppSettings.setSeenStatus(!seenStatus) },
                 )
+                // Only while something the app asks for isn't allowed.
+                if (missing > 0) {
+                    SettingRow("Permissions", "$missing not allowed") { Nav.push(Screen.Permissions) }
+                }
             }
         }
         Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
@@ -653,7 +659,7 @@ fun SettingsScreen() {
 
 /** Toggle row as in Chats: the LP3 switch glyph, then title (names the setting) and consequence. */
 @Composable
-private fun ToggleRow(
+internal fun ToggleRow(
     checked: Boolean,
     title: String,
     subtitle: String,
@@ -689,8 +695,14 @@ private fun ToggleRow(
 private fun SettingRow(
     title: String,
     subtitle: String,
+    onClick: (() -> Unit)? = null,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 2f.gridUnitsAsDp(), vertical = 10.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.lightClickable(onClickLabel = "Open $title", onClick = onClick) else Modifier)
+            .padding(horizontal = 2f.gridUnitsAsDp(), vertical = 10.dp),
+    ) {
         LightText(text = title, variant = LightTextVariant.Heading)
         LightText(text = subtitle, variant = LightTextVariant.Detail, lighten = true)
     }
@@ -738,8 +750,10 @@ fun IncomingCallScreen(
     call: CallUi,
     title: String,
 ) {
+    val error by WaState.error.collectAsState()
     ScreenColumn {
         LightTopBar(center = LightTopBarCenter.Text("WhatsApp"))
+        error?.let { Banner(it) }
         Column(
             Modifier
                 .weight(1f)
