@@ -24,3 +24,9 @@ func TestHistoryMutedUntil(t *testing.T) {
 		}
 	}
 }
+
+func TestHistoryPinnedAt(t *testing.T) {
+	if historyPinnedAt(0) != 0 || historyPinnedAt(1_700_000_000) != 1_700_000_000_000 {
+		t.Error("pin time should be seconds converted to ms, 0 for not pinned")
+	}
+}

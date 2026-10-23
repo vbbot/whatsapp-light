@@ -68,6 +68,9 @@ type Listener interface {
 	OnChatMuted(chat string, mutedUntil int64)
 	// OnChatArchived reports a chat archived or unarchived on another device or in the initial sync.
 	OnChatArchived(chat string, archived bool)
+	// OnChatPinned reports a chat pinned (pinnedAt: when, Unix ms) or unpinned (0) on another
+	// device or in the initial sync.
+	OnChatPinned(chat string, pinnedAt int64)
 	// OnHistory delivers a batch of past messages, chat names and calls from the main phone
 	// (at link time, or answering RequestOlderMessages) as JSON; see historyBatch.
 	OnHistory(json string)
@@ -140,6 +143,8 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 			c.handleMute(e)
 		case *events.Archive:
 			c.handleArchive(e)
+		case *events.Pin:
+			c.handlePin(e)
 		}
 	})
 	return c, nil

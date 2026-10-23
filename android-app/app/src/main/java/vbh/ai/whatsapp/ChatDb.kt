@@ -57,9 +57,10 @@ class ChatDb(
         // last_read: newest message timestamp the user has seen (drives the unread marker).
         // name: chat name from history sync (groups, saved contacts), if any.
         // archived: kept out of the chat list. muted_until: 0 not muted, -1 until unmuted, else Unix ms.
+        // pinned_at: 0 not pinned, else when it was pinned (Unix ms).
         db.execSQL(
             "CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '', " +
-                "archived INTEGER NOT NULL DEFAULT 0, muted_until INTEGER NOT NULL DEFAULT 0)",
+                "archived INTEGER NOT NULL DEFAULT 0, muted_until INTEGER NOT NULL DEFAULT 0, pinned_at INTEGER NOT NULL DEFAULT 0)",
         )
     }
 
@@ -75,11 +76,13 @@ class ChatDb(
             db.execSQL("ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE chats ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0")
         }
+        // 4: pinned chats.
+        if (oldVersion < 4) db.execSQL("ALTER TABLE chats ADD COLUMN pinned_at INTEGER NOT NULL DEFAULT 0")
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 3
+        const val VERSION = 4
 
         @Volatile private var shared: ChatDb? = null
 
