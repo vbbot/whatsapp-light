@@ -70,6 +70,7 @@ func (c *Client) handleHistory(e *events.HistorySync) {
 			pushNames[p.GetID()] = p.GetPushname()
 		}
 	}
+	mappings := batchMappings(data)
 	b := historyBatch{
 		OnDemand: data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND,
 		Type:     data.GetSyncType().String(),
@@ -84,15 +85,16 @@ func (c *Client) handleHistory(e *events.HistorySync) {
 		if name == "" {
 			name = conv.GetDisplayName()
 		}
-		b.Chats = append(b.Chats, historyChat{Chat: chat.String(), Name: name, Unread: int(conv.GetUnreadCount())})
+		b.Chats = append(b.Chats, historyChat{Chat: c.canonical(chat, mappings).String(), Name: name, Unread: int(conv.GetUnreadCount())})
 		for _, hm := range conv.GetMessages() {
-			if m, ok := c.historyMessage(chat, hm.GetMessage(), pushNames); ok {
+			if m, ok := c.historyMessage(chat, hm.GetMessage(), pushNames, mappings); ok {
 				b.Messages = append(b.Messages, m)
 			}
 		}
 	}
 	for _, r := range data.GetCallLogRecords() {
 		if call, ok := historyCallOf(r); ok {
+			call.Peer = c.canonicalString(call.Peer, mappings)
 			b.Calls = append(b.Calls, call)
 		}
 	}
@@ -108,7 +110,7 @@ func (c *Client) handleHistory(e *events.HistorySync) {
 	c.l.OnHistory(string(out))
 }
 
-func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushNames map[string]string) (historyMsg, bool) {
+func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushNames map[string]string, mappings map[string]types.JID) (historyMsg, bool) {
 	if web == nil {
 		return historyMsg{}, false
 	}
@@ -129,8 +131,8 @@ func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushN
 		status = historyStatus(web.GetStatus())
 	}
 	return historyMsg{
-		Chat:       m.Info.Chat.String(),
-		Sender:     m.Info.Sender.String(),
+		Chat:       c.canonical(m.Info.Chat, mappings).String(),
+		Sender:     c.canonical(m.Info.Sender, mappings).String(),
 		SenderName: name,
 		ID:         m.Info.ID,
 		Text:       text,

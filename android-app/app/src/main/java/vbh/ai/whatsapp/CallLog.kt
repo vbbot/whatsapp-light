@@ -60,6 +60,33 @@ object CallLog {
         reload()
     }
 
+    /** Moves calls with [from] onto [into] (one person's two addresses; see [ChatIdentity]). */
+    @Synchronized
+    fun mergePeer(
+        from: String,
+        into: String,
+    ): Boolean {
+        val d = db ?: return false
+        if (from == into) return false
+        val n =
+            d.compileStatement("UPDATE calls SET peer = ? WHERE peer = ?").run {
+                bindString(1, into)
+                bindString(2, from)
+                executeUpdateDelete()
+            }
+        if (n > 0) reload()
+        return n > 0
+    }
+
+    /** Everyone in the call log. */
+    @Synchronized
+    fun peers(): Set<String> =
+        db
+            ?.rawQuery("SELECT DISTINCT peer FROM calls", null)
+            ?.readAll { it.getString(0) }
+            .orEmpty()
+            .toSet()
+
     private fun reload() {
         calls.value = db?.rawQuery("SELECT * FROM calls ORDER BY started_at DESC LIMIT 500", null)?.readAll(ChatDb::call).orEmpty()
     }

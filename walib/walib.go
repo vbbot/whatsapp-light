@@ -152,7 +152,7 @@ func (c *Client) handleReceipt(r *events.Receipt) {
 	for i, id := range r.MessageIDs {
 		ids[i] = string(id)
 	}
-	c.l.OnReceipt(r.Chat.ToNonAD().String(), strings.Join(ids, ","), kind, r.Timestamp.UnixMilli())
+	c.l.OnReceipt(c.canonical(r.Chat, nil).String(), strings.Join(ids, ","), kind, r.Timestamp.UnixMilli())
 }
 
 // MarkRead sends read receipts ("blue ticks") for messages in chat. ids is comma-separated;
@@ -184,7 +184,7 @@ func (c *Client) handleMessage(m *events.Message) {
 		return
 	}
 	mediaPath := c.saveMedia(m, true)
-	c.l.OnMessage(m.Info.Chat.String(), m.Info.Sender.String(), m.Info.PushName, m.Info.ID,
+	c.l.OnMessage(c.canonical(m.Info.Chat, nil).String(), c.canonical(m.Info.Sender, nil).String(), m.Info.PushName, m.Info.ID,
 		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath, photoRef(m.Message))
 }
 
@@ -411,17 +411,7 @@ func (c *Client) CanonicalChat(jid string) string {
 	if !strings.Contains(jid, "@") {
 		jid = strings.TrimPrefix(jid, "+") + "@" + types.DefaultUserServer
 	}
-	j, err := types.ParseJID(jid)
-	if err != nil {
-		return jid
-	}
-	j = j.ToNonAD()
-	if j.Server == types.DefaultUserServer {
-		if lid, err := c.wa.Store.LIDs.GetLIDForPN(context.Background(), j); err == nil && !lid.IsEmpty() {
-			return lid.String()
-		}
-	}
-	return j.String()
+	return c.canonicalString(jid, nil)
 }
 
 // SendMedia uploads a photo or video and sends it to chat. kind is "image" or "video";
@@ -674,7 +664,7 @@ func (c *Client) current(id string) *meowcaller.Call {
 
 func (c *Client) onIncoming(call *meowcaller.Call) {
 	c.attach(call)
-	c.l.OnIncomingCall(call.ID(), call.Peer().String(), call.IsVideo())
+	c.l.OnIncomingCall(call.ID(), c.canonical(call.Peer(), nil).String(), call.IsVideo())
 }
 
 // attach wires lifecycle callbacks and audio endpoints to call.
