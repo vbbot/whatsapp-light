@@ -112,11 +112,9 @@ class MainActivity : ComponentActivity() {
         // The splash stays until we know where to go: linked (chats) or not (pairing code).
         val ready =
             remember {
-                combine(WaState.linked, WaState.qr, WaState.status) { linked, qr, status ->
-                    linked == true || qr != null || status == "error"
-                }
+                combine(WaState.linked, WaState.status) { isLinked, status -> isLinked != null || status == "error" }
             }
-        var splash by rememberSaveable { mutableStateOf(!(WaState.linked.value == true || WaState.qr.value != null)) }
+        var splash by rememberSaveable { mutableStateOf(WaState.linked.value == null) }
         if (splash) {
             LaunchedEffect(Unit) {
                 delay(SPLASH_MIN_MS)
@@ -127,6 +125,7 @@ class MainActivity : ComponentActivity() {
         val permissionsDone by AppSettings.permissionsDone.collectAsState()
 
         val qr by WaState.qr.collectAsState()
+        val linked by WaState.linked.collectAsState()
         val call by WaState.call.collectAsState()
         val stack by Nav.stack.collectAsState()
 
@@ -166,8 +165,8 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                qr != null -> {
-                    PairingScreen(qr!!)
+                qr != null || linked == false -> {
+                    PairingScreen(qr)
                 }
 
                 else -> {
@@ -204,6 +203,7 @@ class MainActivity : ComponentActivity() {
                 is Screen.MediaViewer -> MediaViewerScreen(s.id, s.path, s.backTo)
                 is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
                 Screen.Permissions -> PermissionsScreen(firstRun = false) { Nav.pop() }
+                Screen.LogOut -> LogOutScreen()
             }
         }
     }

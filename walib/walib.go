@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	whatsmeow "github.com/polymorfa/hypermeow"
@@ -71,6 +72,11 @@ type Listener interface {
 	// OnChatPinned reports a chat pinned (pinnedAt: when, Unix ms) or unpinned (0) on another
 	// device or in the initial sync.
 	OnChatPinned(chat string, pinnedAt int64)
+	// OnLoggedOut reports that WhatsApp ended this device's session: removed from Linked devices
+	// on the main phone, or refused at connect. reason is the connect failure code (401 logged
+	// out, 403 main device gone, 406 banned or unknown). The session is deleted; call Close and
+	// start a new Client to link again.
+	OnLoggedOut(reason int)
 	// OnHistory delivers a batch of past messages, chat names and calls from the main phone
 	// (at link time, or answering RequestOlderMessages) as JSON; see historyBatch.
 	OnHistory(json string)
@@ -88,9 +94,11 @@ type Speaker interface {
 }
 
 type Client struct {
-	l  Listener
-	wa *whatsmeow.Client
-	mc *meowcaller.Client
+	l         Listener
+	wa        *whatsmeow.Client
+	mc        *meowcaller.Client
+	container *sqlstore.Container
+	closed    atomic.Bool
 
 	mu       sync.Mutex
 	call     *meowcaller.Call
@@ -125,12 +133,18 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 	wa := whatsmeow.NewClient(device, wl.Sub("wa"))
 	// Report mute/archive state from the initial app-state sync too, not only later changes.
 	wa.EmitAppStateEventsOnFullSync = true
-	c := &Client{l: l, wa: wa}
+	c := &Client{l: l, wa: wa, container: container}
 	// meowcaller must be created before Connect so its call handlers are installed first.
 	c.mc = meowcaller.NewClient(wa, meowcaller.WithLogger(logger))
 	c.mc.OnIncomingCall(c.onIncoming)
 	wa.AddEventHandler(func(evt any) {
+		// A closed client's late events (e.g. a logout racing Close) must not reach the app.
+		if c.closed.Load() {
+			return
+		}
 		switch e := evt.(type) {
+		case *events.LoggedOut:
+			l.OnLoggedOut(int(e.Reason))
 		case *events.Disconnected:
 			l.OnDisconnected()
 		case *events.Message:
@@ -536,6 +550,25 @@ func (c *Client) Connect() error {
 	return nil
 }
 
+// Logout unlinks this device from the account (it disappears from Linked devices on the main
+// phone) and deletes the session. Needs a connection. Already logged out counts as done.
+func (c *Client) Logout() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := c.wa.Logout(ctx); err != nil && !errors.Is(err, whatsmeow.ErrNotLoggedIn) {
+		return err
+	}
+	return nil
+}
+
+// Close disconnects and closes the session database. The client can't be used afterwards and
+// reports no more events.
+func (c *Client) Close() error {
+	c.closed.Store(true)
+	c.Disconnect()
+	return c.container.Close()
+}
+
 func (c *Client) Disconnect() {
 	c.mu.Lock()
 	if c.cancel != nil {
@@ -745,12 +778,22 @@ func (v *videoSink) Close() error { return nil }
 
 var _ meowcaller.VideoOrientationSink = (*videoSink)(nil)
 
+// ErrLoggedOut is returned by Connect when WhatsApp refuses the session (see OnLoggedOut).
+var ErrLoggedOut = errors.New("logged out")
+
 func waitReady(ctx context.Context, wa *whatsmeow.Client, timeout time.Duration) error {
 	ready := make(chan struct{}, 8)
+	loggedOut := make(chan struct{}, 1)
 	id := wa.AddEventHandler(func(evt any) {
-		if _, ok := evt.(*events.Connected); ok {
+		switch evt.(type) {
+		case *events.Connected:
 			select {
 			case ready <- struct{}{}:
+			default:
+			}
+		case *events.LoggedOut:
+			select {
+			case loggedOut <- struct{}{}:
 			default:
 			}
 		}
@@ -760,6 +803,8 @@ func waitReady(ctx context.Context, wa *whatsmeow.Client, timeout time.Duration)
 	for !(wa.IsConnected() && wa.IsLoggedIn()) {
 		select {
 		case <-ready:
+		case <-loggedOut:
+			return ErrLoggedOut
 		case <-deadline:
 			return errors.New("timed out waiting for connection")
 		case <-ctx.Done():

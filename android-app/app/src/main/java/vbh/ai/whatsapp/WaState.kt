@@ -49,6 +49,9 @@ object WaState {
 
     /** Whether this device is linked to a WhatsApp account; null until the session store is read. */
     val linked = MutableStateFlow<Boolean?>(null)
+
+    /** Why WhatsApp ended the last session, shown with the new pairing code; null after linking. */
+    val loggedOutNotice = MutableStateFlow<String?>(null)
     val connected = MutableStateFlow(false)
     val ownNumber = MutableStateFlow("")
     val contacts = MutableStateFlow<List<Contact>>(emptyList())
@@ -77,3 +80,11 @@ object WaState {
         }
     }
 }
+
+/** What to tell the user when WhatsApp ends the session, by connect failure code. */
+fun loggedOutNotice(reason: Int): String =
+    when (reason) {
+        403 -> "This phone was logged out because WhatsApp on your main phone was logged out or reinstalled."
+        406 -> "WhatsApp logged this phone out. Link it again to keep using it."
+        else -> "This phone was removed from Linked devices on your main phone. Link it again to keep using it."
+    }

@@ -87,6 +87,14 @@ object CallLog {
             .orEmpty()
             .toSet()
 
+    /** Deletes every call (logging out). */
+    @Synchronized
+    fun clearAll() {
+        db?.delete("calls", null, null)
+        declined.clear()
+        reload()
+    }
+
     private fun reload() {
         calls.value = db?.rawQuery("SELECT * FROM calls ORDER BY started_at DESC LIMIT 500", null)?.readAll(ChatDb::call).orEmpty()
     }

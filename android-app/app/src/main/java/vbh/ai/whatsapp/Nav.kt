@@ -36,6 +36,9 @@ sealed interface Screen {
 
     data object Permissions : Screen
 
+    /** Confirms logging out (Settings). */
+    data object LogOut : Screen
+
     /** Mute, archive and the other actions for one chat (long-press it, or tap its name in the thread). */
     data class ChatOptions(
         val chat: String,
@@ -82,6 +85,13 @@ object Nav {
     /** Replaces the top screen (e.g. composer -> back to its thread is a plain pop). */
     fun replaceTop(s: Screen) {
         stack.value = stack.value.dropLast(1) + s
+        sync()
+    }
+
+    /** Back to the chat list, as after logging out. */
+    fun reset() {
+        stack.value = listOf(Screen.Home)
+        tab.value = Tab.MESSAGES
         sync()
     }
 

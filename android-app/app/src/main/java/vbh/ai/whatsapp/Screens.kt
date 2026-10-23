@@ -651,6 +651,9 @@ fun SettingsScreen() {
                 if (missing > 0) {
                     SettingRow("Permissions", "$missing not allowed") { Nav.push(Screen.Permissions) }
                 }
+                if (own.isNotEmpty()) {
+                    SettingRow("Log out", "unlink this phone and delete its messages") { Nav.push(Screen.LogOut) }
+                }
             }
         }
         Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
@@ -711,8 +714,9 @@ private fun SettingRow(
 // ---------------------------------------------------------------- pairing
 
 @Composable
-fun PairingScreen(code: String) {
-    val bmp = remember(code) { qrBitmap(code) }
+fun PairingScreen(code: String?) {
+    val notice by WaState.loggedOutNotice.collectAsState()
+    val bmp = remember(code) { code?.let { qrBitmap(it) } }
     ScreenColumn {
         LightTopBar(center = LightTopBarCenter.Text("Link device"))
         Column(
@@ -720,8 +724,23 @@ fun PairingScreen(code: String) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // A QR needs its light quiet zone: black-on-black would not scan.
-            Image(bmp.asImageBitmap(), contentDescription = "Pairing code", modifier = Modifier.size(15f.gridUnitsAsDp()))
+            // Why the last session ended (removed on the main phone), above the new code.
+            notice?.let {
+                LightText(
+                    text = it,
+                    variant = LightTextVariant.Heading,
+                    align = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 1.5f.gridUnitsAsDp()),
+                )
+            }
+            if (bmp != null) {
+                // A QR needs its light quiet zone: black-on-black would not scan.
+                Image(bmp.asImageBitmap(), contentDescription = "Pairing code", modifier = Modifier.size(15f.gridUnitsAsDp()))
+            } else {
+                Box(Modifier.size(15f.gridUnitsAsDp()), contentAlignment = Alignment.Center) {
+                    LightText(text = "getting a code…", variant = LightTextVariant.Detail, lighten = true)
+                }
+            }
             LightText(
                 text = "Open WhatsApp on your other phone, then Settings, Linked devices, Link a device.",
                 variant = LightTextVariant.Detail,
