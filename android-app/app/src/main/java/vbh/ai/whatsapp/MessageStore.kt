@@ -402,11 +402,31 @@ object MessageStore {
     @Synchronized
     fun markRead(chat: String) {
         val d = db ?: return
-        val newest = newestTs(d, chat) ?: return
-        if (lastRead(d, chat) >= newest) return
+        // Up to the newest message, or a newer reaction to one of ours.
+        val newest = maxOf(newestTs(d, chat) ?: 0L, reactedAt(d, chat))
+        if (newest == 0L || lastRead(d, chat) >= newest) return
         setLastRead(d, chat, newest)
         changed()
     }
+
+    /** Someone reacted to one of our messages in [chat] at [ts]: the chat shows unread until opened. */
+    @Synchronized
+    fun markReacted(
+        chat: String,
+        ts: Long,
+    ) {
+        val d = db ?: return
+        d.execSQL(
+            "INSERT INTO chats(chat, reacted_at) VALUES(?, ?) ON CONFLICT(chat) DO UPDATE SET reacted_at = MAX(reacted_at, excluded.reacted_at)",
+            arrayOf<Any>(chat, ts),
+        )
+        changed()
+    }
+
+    private fun reactedAt(
+        d: SQLiteDatabase,
+        chat: String,
+    ): Long = d.rawQuery("SELECT reacted_at FROM chats WHERE chat = ?", arrayOf(chat)).use { if (it.moveToFirst()) it.getLong(0) else 0L }
 
     /** We read these messages on another of our devices: treat the chat as read up to them. */
     @Synchronized
@@ -600,8 +620,9 @@ object MessageStore {
                 .rawQuery(
                     """
                     SELECT m.*, IFNULL(c.muted_until, 0) AS chat_muted_until, IFNULL(c.pinned_at, 0) AS chat_pinned_at,
-                      EXISTS(SELECT 1 FROM messages u WHERE u.chat = m.chat AND u.from_me = 0
-                             AND u.ts > IFNULL(c.last_read, 0)) AS unread
+                      (EXISTS(SELECT 1 FROM messages u WHERE u.chat = m.chat AND u.from_me = 0
+                              AND u.ts > IFNULL(c.last_read, 0))
+                       OR IFNULL(c.reacted_at, 0) > IFNULL(c.last_read, 0)) AS unread
                     FROM (SELECT chat, MAX(ts) AS newest FROM messages GROUP BY chat) t
                     JOIN messages m ON m.chat = t.chat AND m.ts = t.newest
                     LEFT JOIN chats c ON c.chat = m.chat

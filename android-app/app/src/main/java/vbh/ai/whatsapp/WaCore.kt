@@ -639,8 +639,10 @@ object WaCore : Listener {
         MessageStore.setReaction(chat, targetID, reactor, emoji, timestampMs)
         // As WhatsApp: only reactions to our own messages notify, and quiet chats stay quiet.
         val target = MessageStore.get(targetID) ?: return
-        if (emoji.isEmpty() || reactor == "me" || !target.fromMe) return
-        if (MessageStore.chatState(chat).quietAt(System.currentTimeMillis()) || MessageStore.openChat.value == chat) return
+        if (emoji.isEmpty() || reactor == "me" || !target.fromMe || MessageStore.openChat.value == chat) return
+        // Like a message: the chat shows unread until opened (muted ones too, just without a notification).
+        MessageStore.markReacted(chat, maxOf(timestampMs, target.ts + 1))
+        if (MessageStore.chatState(chat).quietAt(System.currentTimeMillis())) return
         val who = MessageStore.title(reactor)
         val n =
             NotificationCompat

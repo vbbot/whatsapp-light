@@ -63,7 +63,8 @@ class ChatDb(
         // pinned_at: 0 not pinned, else when it was pinned (Unix ms).
         db.execSQL(
             "CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '', " +
-                "archived INTEGER NOT NULL DEFAULT 0, muted_until INTEGER NOT NULL DEFAULT 0, pinned_at INTEGER NOT NULL DEFAULT 0)",
+                "archived INTEGER NOT NULL DEFAULT 0, muted_until INTEGER NOT NULL DEFAULT 0, pinned_at INTEGER NOT NULL DEFAULT 0, " +
+                "reacted_at INTEGER NOT NULL DEFAULT 0)",
         )
         createReactions(db)
     }
@@ -99,11 +100,13 @@ class ChatDb(
         }
         // 6: reactions.
         if (oldVersion < 6) createReactions(db)
+        // 7: when someone last reacted to one of ours (it marks the chat unread).
+        if (oldVersion < 7) db.execSQL("ALTER TABLE chats ADD COLUMN reacted_at INTEGER NOT NULL DEFAULT 0")
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 6
+        const val VERSION = 7
 
         @Volatile private var shared: ChatDb? = null
 

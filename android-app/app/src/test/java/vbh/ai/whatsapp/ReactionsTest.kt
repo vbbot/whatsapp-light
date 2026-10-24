@@ -67,4 +67,14 @@ class ReactionsTest {
         History.import(History.parse(json))
         assertEquals("🔥", MessageStore.ownReaction("m3"))
     }
+
+    @Test fun aReactionToOurMessageMarksTheChatUnreadUntilOpened() {
+        MessageStore.add(Msg("mine", "g@g.us", "me", "", "hello", 20, true, true))
+        MessageStore.markRead("g@g.us")
+        assertEquals(false, MessageStore.chats().single().unread)
+        MessageStore.markReacted("g@g.us", 30)
+        assertEquals(true, MessageStore.chats().single().unread)
+        MessageStore.markRead("g@g.us")
+        assertEquals(false, MessageStore.chats().single().unread)
+    }
 }
