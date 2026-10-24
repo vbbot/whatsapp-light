@@ -2,24 +2,27 @@ package vbh.ai.whatsapp
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.PriorityBlockingQueue
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
 /**
- * Full-size photos for messages that only have their small embedded preview (or none), which is
- * all history sync brings. Two triggers share one queue:
+ * Downloads of full-size photos and of videos, for messages that only have their small embedded
+ * preview (or none), which is all history sync brings. Two triggers share one queue:
  *
- * - [shown]: the photo came on screen. Fetched once per session.
- * - [opened]: the photo was opened. Goes ahead of everything shown, and tries again after an
- *   earlier failure.
+ * - [shown]: a photo came on screen. Fetched once per session. Videos are large, so they're
+ *   never fetched just for scrolling past.
+ * - [opened]: a photo or video was opened. Goes ahead of everything shown, and tries again after
+ *   an earlier failure.
  *
  * Then the most recently shown go first; a shown photo still waiting after [SHOWN_EXPIRY_MS] has
- * been scrolled past and is dropped. One download runs at a time. A finished download becomes
- * the message's media file, so the thread and the viewer both switch to it.
+ * been scrolled past and is dropped. One download runs at a time. A finished photo becomes the
+ * message's media file, so the thread and the viewer both switch to it; a finished video is
+ * [videoFile].
  */
-object Photos {
+object Media {
     sealed interface State {
         data object Loading : State
 
@@ -28,11 +31,17 @@ object Photos {
         ) : State
     }
 
-    /** Photos being fetched or that failed, by message ID; absent means idle or done. */
+    /** Downloads being fetched or that failed, by message ID; absent means idle or done. */
     val states = MutableStateFlow<Map<String, State>>(emptyMap())
 
     /** Downloads a message's full photo and returns the file's path; set by [WaCore] when the client starts. */
-    @Volatile var downloader: ((Msg) -> String)? = null
+    @Volatile var photoDownloader: ((Msg) -> String)? = null
+
+    /** Downloads a message's video to [videoFile]; set by [WaCore] when the client starts. */
+    @Volatile var videoDownloader: ((Msg) -> String)? = null
+
+    /** Where videos are kept; set by [WaCore]. */
+    @Volatile var dir: File? = null
 
     private const val SHOWN_EXPIRY_MS = 60_000L
 
@@ -43,7 +52,7 @@ object Photos {
     private val attempted: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     private val worker by lazy {
-        thread(name = "wa-photos", isDaemon = true) {
+        thread(name = "wa-media", isDaemon = true) {
             while (true) {
                 val job = queue.take()
                 // Scrolled past long ago: forget it, so it's fetched if it comes on screen again.
@@ -52,12 +61,18 @@ object Photos {
         }
     }
 
+    /** The local copy of message [id]'s video: downloaded, or kept when we sent it. */
+    fun videoFile(id: String): File = File(dir ?: File(""), mediaFileName(id) + ".mp4")
+
+    /** A video that can be downloaded and isn't here yet. */
+    fun needsVideo(m: Msg): Boolean = m.isVideo && m.mediaRef.isNotEmpty() && !videoFile(m.id).exists()
+
     fun shown(m: Msg) {
         if (m.needsFullPhoto && attempted.add(m.id)) submit(m.id, opened = false)
     }
 
     fun opened(m: Msg) {
-        if (!m.needsFullPhoto) return
+        if (!m.needsFullPhoto && !needsVideo(m)) return
         attempted.add(m.id)
         submit(m.id, opened = true)
     }
@@ -72,19 +87,22 @@ object Photos {
 
     private fun fetch(job: Job) {
         // Re-read: an earlier job may have fetched it already, or failed it (only opening retries).
-        val m = MessageStore.get(job.id)?.takeIf { it.needsFullPhoto } ?: return
+        val m = MessageStore.get(job.id) ?: return
+        val video = needsVideo(m)
+        if (!video && !m.needsFullPhoto) return
         if (!job.opened && states.value[job.id] is State.Failed) return
-        val download = downloader
+        val download = if (video) videoDownloader else photoDownloader
         if (download == null) {
             states.update { it + (job.id to State.Failed("not connected")) }
             return
         }
         states.update { it + (job.id to State.Loading) }
         try {
-            MessageStore.setMedia(job.id, download(m))
+            val path = download(m)
+            if (!video) MessageStore.setMedia(job.id, path)
             states.update { it - job.id }
         } catch (e: Exception) {
-            WaState.log("photo ${job.id}: ${e.message}")
+            WaState.log("${if (video) "video" else "photo"} ${job.id}: ${e.message}")
             states.update { it + (job.id to State.Failed(e.message ?: "download failed")) }
         }
     }

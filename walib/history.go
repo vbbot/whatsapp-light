@@ -38,7 +38,8 @@ type historyMsg struct {
 	// Status of our own messages: 0 none, 1 sent, 2 delivered, 3 seen (as in the app).
 	Status int    `json:"status"`
 	Media  string `json:"media"`
-	// MediaRef lets DownloadPhoto fetch the full photo later (history keeps thumbnails only).
+	// MediaRef lets DownloadPhoto / DownloadVideo fetch the full photo or video later (history
+	// keeps thumbnails only).
 	MediaRef string `json:"mediaRef"`
 	// The message this one replies to (see quote); empty when it isn't a reply.
 	QuotedID     string `json:"quotedId,omitempty"`
@@ -161,7 +162,7 @@ func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushN
 		Status:     status,
 		// Thumbnails only: downloading every old photo would be slow and mostly unseen.
 		Media:        c.saveMedia(m, false),
-		MediaRef:     photoRef(m.Message),
+		MediaRef:     mediaRef(m.Message),
 		QuotedID:     q.ID,
 		QuotedSender: q.Sender,
 		QuotedText:   q.Text,

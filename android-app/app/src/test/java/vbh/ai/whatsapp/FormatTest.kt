@@ -43,4 +43,13 @@ class FormatTest {
     @Test fun messageTimeTodayHasNoDayTag() {
         assertTrue(formatMessageTime(System.currentTimeMillis()).matches(Regex("\\d{1,2}:\\d\\d [AP]M")))
     }
+
+    @Test fun clockShowsMinutesWithoutPaddingAndHoursWhenLong() {
+        assertEquals("0:00", formatClock(0))
+        assertEquals("0:42", formatClock(42_900))
+        assertEquals("12:05", formatClock(725_000))
+        assertEquals("1:02:03", formatClock(3_723_000))
+        assertEquals("Video · 0:42", videoLabel(42))
+        assertEquals("Video", videoLabel(0))
+    }
 }

@@ -41,6 +41,7 @@ object WaCore : Listener {
     @Synchronized
     fun prepare(context: Context) {
         if (!::app.isInitialized) app = context.applicationContext
+        Media.dir = mediaDir()
         if (WaState.logFile == null) WaState.logFile = java.io.File(app.filesDir, "wapoc.log")
         if (!::video.isInitialized) {
             video =
@@ -77,7 +78,8 @@ object WaCore : Listener {
                 c.setVideoRenderer(video)
                 c.setMediaDir(mediaDir().absolutePath)
                 client = c
-                Photos.downloader = { m -> c.downloadPhoto(m.id, m.mediaRef) }
+                Media.photoDownloader = { m -> c.downloadPhoto(m.id, m.mediaRef) }
+                Media.videoDownloader = { m -> c.downloadVideo(m.id, m.mediaRef) }
                 ChatIdentity.canonical = { jid -> c.canonicalChat(jid) }
                 WaState.linked.value = c.isPaired
                 WaState.status.value = if (c.isPaired) "connecting…" else "waiting for QR…"
@@ -135,7 +137,8 @@ object WaCore : Listener {
     private fun relink(notice: String?) {
         val old = client
         client = null
-        Photos.downloader = null
+        Media.photoDownloader = null
+        Media.videoDownloader = null
         ChatIdentity.canonical = null
         runCatching { old?.close() }.onFailure { WaState.log("close failed: ${it.message}") }
         stopRing()
@@ -144,7 +147,7 @@ object WaCore : Listener {
         app.getSystemService(NotificationManager::class.java).cancelAll()
         MessageStore.clearAll()
         CallLog.clearAll()
-        Photos.states.value = emptyMap()
+        Media.states.value = emptyMap()
         History.syncing.value = null
         mediaDir().deleteRecursively()
         listOf("", "-wal", "-shm", "-journal").forEach { File(sessionDb().path + it).delete() }
@@ -517,6 +520,8 @@ object WaCore : Listener {
             val label = if (media.kind == "image") "[image]" else "[video]"
             // Keep our own copy to show in the thread: the photo itself, or a video's thumbnail.
             local = File(mediaDir(), "$tmp.jpg").also { it.writeBytes(if (media.kind == "image") media.data else media.thumbnail) }
+            // And of a video itself, so our own videos play without downloading.
+            if (media.kind == "video") Media.videoFile(tmp).writeBytes(media.data)
             MessageStore.add(Msg(tmp, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, pending = true, media = local.path))
             val id =
                 client!!.sendMedia(
@@ -530,7 +535,8 @@ object WaCore : Listener {
                     media.seconds.toLong(),
                     media.thumbnail,
                 )
-            val kept = File(mediaDir(), id.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".jpg").also { local.renameTo(it) }
+            val kept = File(mediaDir(), mediaFileName(id) + ".jpg").also { local.renameTo(it) }
+            if (media.kind == "video") Media.videoFile(tmp).renameTo(Media.videoFile(id))
             MessageStore.remove(tmp)
             MessageStore.add(
                 Msg(id, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, status = Status.SENT, media = kept.path),
@@ -539,6 +545,7 @@ object WaCore : Listener {
         } catch (e: Exception) {
             MessageStore.remove(tmp)
             local?.delete()
+            Media.videoFile(tmp).delete()
             throw e
         }
     }
@@ -684,7 +691,7 @@ object WaCore : Listener {
     ) {
         Wake.hold(2_000)
         if (MessageStore.get(id)?.chat != chat) return
-        removeMedia(MessageStore.deleteMessage(id))
+        removeMedia(id, MessageStore.deleteMessage(id))
     }
 
     override fun onDisconnected() {
@@ -906,7 +913,7 @@ object WaCore : Listener {
             val cl = client ?: error("not connected")
             val author = if (m.isGroup && !m.fromMe) m.sender else ""
             cl.deleteForMe(m.chat, m.id, author, m.fromMe, m.ts)
-            removeMedia(MessageStore.deleteMessage(m.id))
+            removeMedia(m.id, MessageStore.deleteMessage(m.id))
             onDone(null)
         } catch (e: Exception) {
             WaState.log("delete message failed: ${e.message}")
@@ -922,7 +929,7 @@ object WaCore : Listener {
         try {
             val cl = client ?: error("not connected")
             cl.revokeMessage(m.chat, m.id)
-            removeMedia(MessageStore.markDeleted(m.id))
+            removeMedia(m.id, MessageStore.markDeleted(m.id))
             onDone(null)
         } catch (e: Exception) {
             WaState.log("delete for everyone failed: ${e.message}")
@@ -930,8 +937,12 @@ object WaCore : Listener {
         }
     }
 
-    /** Deletes a media file, if it's one of ours. */
-    private fun removeMedia(path: String?) {
+    /** Deletes message [id]'s media file [path], if it's one of ours, and its video. */
+    private fun removeMedia(
+        id: String,
+        path: String?,
+    ) {
+        Media.videoFile(id).delete()
         if (path == null) return
         val f = File(path)
         if (f.canonicalPath.startsWith(mediaDir().canonicalPath + File.separator)) f.delete()
@@ -944,6 +955,7 @@ object WaCore : Listener {
         keepChat: Boolean,
     ) {
         val left = MessageStore.count(chat)
+        MessageStore.videoIds(chat, beforeMs).forEach { Media.videoFile(it).delete() }
         val media = MessageStore.deleteChat(chat, beforeMs, keepChat)
         WaState.log("deleted chat $chat up to $beforeMs: ${left - MessageStore.count(chat)} of $left messages")
         val dir = mediaDir().canonicalPath + File.separator
