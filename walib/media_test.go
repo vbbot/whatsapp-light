@@ -102,3 +102,12 @@ func TestGIFsHaveTheirOwnPlaceholder(t *testing.T) {
 		t.Errorf("video text = %q", got)
 	}
 }
+
+func TestStickerExtTellsLottieZipsFromWebP(t *testing.T) {
+	if got := stickerExt([]byte("PK\x03\x04rest")); got != ".was" {
+		t.Errorf("zip = %q", got)
+	}
+	if got := stickerExt([]byte("RIFF....WEBP")); got != ".webp" {
+		t.Errorf("webp = %q", got)
+	}
+}
