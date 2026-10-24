@@ -176,8 +176,9 @@ func expired(err error) bool {
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
 }
 
-// DownloadSticker fetches the sticker of message id (a WebP image, possibly animated) to
-// "<id>.webp" in the media directory and returns its path. ref is the message's mediaRef. Old
+// DownloadSticker fetches the sticker of message id to the media directory and returns its
+// path: "<id>.webp" for a WebP image (possibly animated), or "<id>.was" for WhatsApp's own
+// animated stickers, a zip holding a Lottie animation. ref is the message's mediaRef. Old
 // stickers may have expired from the server (ErrMediaExpired). Call from a background thread.
 func (c *Client) DownloadSticker(id, ref string) (string, error) {
 	raw, err := base64.StdEncoding.DecodeString(ref)
@@ -203,9 +204,17 @@ func (c *Client) DownloadSticker(id, ref string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, safeFileName(id)+".webp")
+	path := filepath.Join(dir, safeFileName(id)+stickerExt(data))
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+// stickerExt is the file extension for sticker data: ".was" for a zip (Lottie), else ".webp".
+func stickerExt(data []byte) string {
+	if len(data) >= 4 && string(data[:4]) == "PK\x03\x04" {
+		return ".was"
+	}
+	return ".webp"
 }
