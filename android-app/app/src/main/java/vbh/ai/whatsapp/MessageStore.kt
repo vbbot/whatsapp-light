@@ -22,7 +22,7 @@ data class Msg(
     val readSent: Boolean = false,
     /** Local file for a photo (full size once downloaded) or a video's thumbnail; "" if none. */
     val media: String = "",
-    /** Download info for the full photo (see [Photos]); "" if none. */
+    /** Download info for the full photo or the video (see [Media]); "" if none. */
     val mediaRef: String = "",
     /** For a reply: the ID of the message it answers; "" if it isn't one. */
     val quoteId: String = "",
@@ -75,6 +75,9 @@ const val REVOKE_WINDOW_MS = 60 * 60 * 60_000L
 
 /** walib saves a message's embedded preview as "<id>_t.jpg" and the full photo as "<id>.jpg". */
 fun isThumbnailFile(path: String): Boolean = path.endsWith("_t.jpg")
+
+/** A message ID as walib names its media files: anything but letters, digits, '-' and '_' becomes '_'. */
+fun mediaFileName(id: String): String = id.replace(Regex("[^A-Za-z0-9_-]"), "_")
 
 /** Delivery state of our own messages; only ever moves forward. */
 object Status {
@@ -514,6 +517,18 @@ object MessageStore {
         changed()
         return media
     }
+
+    /** IDs of [chat]'s videos at or before [beforeMs], whose files go when the chat is deleted. */
+    fun videoIds(
+        chat: String,
+        beforeMs: Long = Long.MAX_VALUE,
+    ): List<String> =
+        db
+            ?.rawQuery(
+                "SELECT id FROM messages WHERE chat = ? AND ts <= ? AND text LIKE '[video]%'",
+                arrayOf(chat, beforeMs.toString()),
+            )?.readAll { it.getString(0) }
+            .orEmpty()
 
     /** Archives or unarchives [chat] here (sync with WhatsApp is the caller's job). */
     @Synchronized

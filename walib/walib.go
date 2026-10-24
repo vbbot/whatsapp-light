@@ -49,7 +49,8 @@ type Listener interface {
 	// OnMessage reports a text message (incoming, or sent from another device). Non-text
 	// messages arrive with a placeholder body such as "[image]". timestampMs is Unix ms.
 	// mediaPath is a local file for photo/video messages (the embedded thumbnail at first; see
-	// OnMediaReady), or "". mediaRef is what DownloadPhoto needs to fetch a photo later, or "".
+	// OnMediaReady), or "". mediaRef is what DownloadPhoto / DownloadVideo need to fetch a photo or
+	// video later, or "".
 	// For a reply, quotedID, quotedSender and quotedText describe the message it answers (see
 	// quote); all "" otherwise.
 	OnMessage(chat, sender, senderName, id, text string, timestampMs int64, fromMe, isGroup bool, mediaPath, mediaRef, quotedID, quotedSender, quotedText string)
@@ -248,7 +249,7 @@ func (c *Client) handleMessage(m *events.Message) {
 	mediaPath := c.saveMedia(m, true)
 	q := c.quoteOf(m.Message, nil)
 	c.l.OnMessage(c.canonical(m.Info.Chat, nil).String(), c.canonical(m.Info.Sender, nil).String(), m.Info.PushName, m.Info.ID,
-		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath, photoRef(m.Message), q.ID, q.Sender, q.Text)
+		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath, mediaRef(m.Message), q.ID, q.Sender, q.Text)
 }
 
 // messageText is the body shown for a message: its text, or a placeholder such as "[image]"

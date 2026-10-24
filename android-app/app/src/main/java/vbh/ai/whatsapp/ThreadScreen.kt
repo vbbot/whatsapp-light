@@ -432,10 +432,15 @@ private fun MessageBody(
             lighten = true,
             modifier = Modifier.padding(top = 1.dp),
         )
-    } else if (m.hasPicture) {
+    } else if (m.hasPicture || m.isVideo) {
+        val open = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle, video = m.isVideo)) }
         // Media is the one place colour is allowed: shown as-is, tap for full screen.
-        MediaThumb(m, onOpen = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle)) })
-        if (m.isVideo) MessageText("[Video]", m.fromMe, columnWidthPx)
+        if (m.hasPicture) MediaThumb(m, onOpen = open)
+        if (m.isVideo) {
+            Box(Modifier.lightClickable(onClickLabel = "Play video", onClick = open)) {
+                MessageText(videoLabel(rememberVideoSeconds(m)), m.fromMe, columnWidthPx)
+            }
+        }
         if (m.caption.isNotEmpty()) MessageText(m.caption, m.fromMe, columnWidthPx)
     } else {
         MessageText(m.text, m.fromMe, columnWidthPx)
@@ -446,7 +451,7 @@ private fun MessageBody(
 
 /** Decodes [path] scaled down to about [maxSide] px, off the main thread; null until ready. */
 @Composable
-private fun rememberBitmap(
+internal fun rememberBitmap(
     path: String,
     maxSide: Int,
 ): androidx.compose.ui.graphics.ImageBitmap? {
@@ -538,27 +543,28 @@ private fun imageAspect(path: String): Float? {
  * its final size straight away (read from the file's header) and the picture fills in once
  * decoded, so rows don't change height under the reader and a saved scroll position restores
  * exactly. Coming on screen fetches the full photo if only the preview is stored
- * ([Photos.shown]); it has the same shape, so the row only sharpens.
+ * ([Media.shown]); it has the same shape, so the row only sharpens.
  */
 @Composable
 private fun MediaThumb(
     m: Msg,
     onOpen: () -> Unit,
 ) {
-    LaunchedEffect(m.id, m.needsFullPhoto) { Photos.shown(m) }
+    LaunchedEffect(m.id, m.needsFullPhoto) { Media.shown(m) }
     val aspect = remember(m.media) { imageAspect(m.media) }
     val bmp = rememberBitmap(m.media, 720)
-    val open = Modifier.lightClickable(onClickLabel = "Open photo", onClick = onOpen)
+    val open = Modifier.lightClickable(onClickLabel = if (m.isVideo) "Play video" else "Open photo", onClick = onOpen)
     if (aspect == null) {
-        // No preview: a placeholder until the photo arrives; it still opens the viewer.
-        LightText(text = "[Photo]", variant = LightTextVariant.Paragraph, modifier = open.padding(top = 1.dp))
+        // No preview: a placeholder until the photo arrives; it still opens the viewer. A video
+        // has its label below instead.
+        if (!m.isVideo) LightText(text = "[Photo]", variant = LightTextVariant.Paragraph, modifier = open.padding(top = 1.dp))
         return
     }
     Box(Modifier.fillMaxWidth(0.7f).aspectRatio(aspect).then(open)) {
         bmp?.let {
             Image(
                 bitmap = it,
-                contentDescription = "Photo, open full screen",
+                contentDescription = if (m.isVideo) "Video preview, tap to play" else "Photo, open full screen",
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -568,7 +574,7 @@ private fun MediaThumb(
 
 /**
  * Full-screen photo; back returns to the chat. Shows what's stored and fetches the full photo
- * if needed ([Photos.opened]), following the message so it switches over when that arrives.
+ * if needed ([Media.opened]), following the message so it switches over when that arrives.
  * [openedPath] covers a photo that's still sending (not stored yet).
  */
 @Composable
@@ -580,8 +586,8 @@ fun MediaViewerScreen(
     val changes by MessageStore.changes.collectAsState()
     val msg = rememberQuery(id, changes) { MessageStore.get(id) }
     val connected by WaState.connected.collectAsState()
-    val states by Photos.states.collectAsState()
-    LaunchedEffect(msg?.id, connected) { if (msg != null && connected) Photos.opened(msg) }
+    val states by Media.states.collectAsState()
+    LaunchedEffect(msg?.id, connected) { if (msg != null && connected) Media.opened(msg) }
     val bmp = rememberBitmap(msg?.media?.ifEmpty { null } ?: openedPath, 2048)
     ScreenColumn {
         LightTopBar(leftButton = backButton(backTo) { Nav.pop() })
@@ -589,7 +595,7 @@ fun MediaViewerScreen(
         if (msg?.needsFullPhoto == true) {
             Banner(
                 when {
-                    state is Photos.State.Failed -> "Couldn't load the full photo: ${state.reason}"
+                    state is Media.State.Failed -> "Couldn't load the full photo: ${state.reason}"
                     !connected -> "The full photo loads when connected"
                     else -> "Loading the full photo…"
                 },
@@ -598,7 +604,7 @@ fun MediaViewerScreen(
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (bmp == null) {
                 // Nothing to show yet; after a failed download the banner says why.
-                if (state !is Photos.State.Failed) StatusText(LOADING_TEXT)
+                if (state !is Media.State.Failed) StatusText(LOADING_TEXT)
             } else {
                 Image(
                     bitmap = bmp,
