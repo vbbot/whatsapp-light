@@ -414,7 +414,15 @@ private fun MessageBody(
     columnWidthPx: Int,
     chatTitle: String,
 ) {
-    if (m.hasPicture) {
+    if (m.isDeleted) {
+        // Deleted for everyone: a dimmed line in its place.
+        LightText(
+            text = if (m.fromMe) "You deleted this message" else "This message was deleted",
+            variant = LightTextVariant.Paragraph,
+            lighten = true,
+            modifier = Modifier.padding(top = 1.dp),
+        )
+    } else if (m.hasPicture) {
         // Media is the one place colour is allowed: shown as-is, tap for full screen.
         MediaThumb(m, onOpen = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle)) })
         if (m.isVideo) MessageText("[Video]", m.fromMe, columnWidthPx)

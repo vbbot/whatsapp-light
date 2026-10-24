@@ -628,6 +628,15 @@ object WaCore : Listener {
         if (!keepChat) Nav.dropChat(chat)
     }
 
+    override fun onMessageDeleted(
+        chat: String,
+        id: String,
+    ) {
+        Wake.hold(2_000)
+        if (MessageStore.get(id)?.chat != chat) return
+        removeMedia(MessageStore.deleteMessage(id))
+    }
+
     override fun onDisconnected() {
         Wake.hold(5_000) // whatsmeow reconnects within a second or two
         WaState.connected.value = false
@@ -833,6 +842,49 @@ object WaCore : Listener {
             WaState.log("delete chat failed: ${e.message}")
             onDone(e.message ?: "unknown error")
         }
+    }
+
+    /**
+     * Deletes [m] from this account's devices (Delete for me). WhatsApp is told first; only once it
+     * accepts is the message removed here. [onDone] gets the error, or null.
+     */
+    fun deleteForMe(
+        m: Msg,
+        onDone: (error: String?) -> Unit,
+    ) = thread(name = "wa-delete-msg") {
+        try {
+            val cl = client ?: error("not connected")
+            val author = if (m.isGroup && !m.fromMe) m.sender else ""
+            cl.deleteForMe(m.chat, m.id, author, m.fromMe, m.ts)
+            removeMedia(MessageStore.deleteMessage(m.id))
+            onDone(null)
+        } catch (e: Exception) {
+            WaState.log("delete message failed: ${e.message}")
+            onDone(e.message ?: "unknown error")
+        }
+    }
+
+    /** Deletes our own message [m] for everyone in the chat; it stays as a "deleted" line here. */
+    fun deleteForEveryone(
+        m: Msg,
+        onDone: (error: String?) -> Unit,
+    ) = thread(name = "wa-revoke-msg") {
+        try {
+            val cl = client ?: error("not connected")
+            cl.revokeMessage(m.chat, m.id)
+            removeMedia(MessageStore.markDeleted(m.id))
+            onDone(null)
+        } catch (e: Exception) {
+            WaState.log("delete for everyone failed: ${e.message}")
+            onDone(e.message ?: "unknown error")
+        }
+    }
+
+    /** Deletes a media file, if it's one of ours. */
+    private fun removeMedia(path: String?) {
+        if (path == null) return
+        val f = File(path)
+        if (f.canonicalPath.startsWith(mediaDir().canonicalPath + File.separator)) f.delete()
     }
 
     /** Removes [chat]'s messages up to [beforeMs] and their media files, and its notification. */

@@ -41,7 +41,7 @@ object Replies {
 
     /** The quote line for reply [m]: the original if it's stored here, else WhatsApp's snapshot. */
     fun lineFor(m: Msg): AnnotatedString {
-        val original = MessageStore.get(m.quoteId)
+        val original = MessageStore.get(m.quoteId)?.takeUnless { it.isDeleted }
         val author = authorName(original?.let { if (it.fromMe) "me" else it.sender } ?: m.quoteSender, m.chat)
         val snippet = original?.let(::quoteSnippet) ?: snippet(m.quoteText).ifEmpty { ORIGINAL_MISSING }
         return line(author, snippet)

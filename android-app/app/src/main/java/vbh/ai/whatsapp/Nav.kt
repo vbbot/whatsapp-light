@@ -44,8 +44,14 @@ sealed interface Screen {
         val chat: String,
     ) : Screen
 
-    /** What a long press on a message offers (REPLY). */
+    /** What a long press on a message offers (REPLY, DELETE). */
     data class MessageMenu(
+        val chat: String,
+        val id: String,
+    ) : Screen
+
+    /** Confirms deleting one message: for me, or for everyone. */
+    data class DeleteMessage(
         val chat: String,
         val id: String,
     ) : Screen
@@ -109,6 +115,7 @@ object Nav {
                     is Screen.ChatOptions -> it.chat == chat
                     is Screen.DeleteChat -> it.chat == chat
                     is Screen.MessageMenu -> it.chat == chat
+                    is Screen.DeleteMessage -> it.chat == chat
                     else -> false
                 }
             }
