@@ -47,7 +47,9 @@ type Listener interface {
 	// messages arrive with a placeholder body such as "[image]". timestampMs is Unix ms.
 	// mediaPath is a local file for photo/video messages (the embedded thumbnail at first; see
 	// OnMediaReady), or "". mediaRef is what DownloadPhoto needs to fetch a photo later, or "".
-	OnMessage(chat, sender, senderName, id, text string, timestampMs int64, fromMe, isGroup bool, mediaPath, mediaRef string)
+	// For a reply, quotedID, quotedSender and quotedText describe the message it answers (see
+	// quote); all "" otherwise.
+	OnMessage(chat, sender, senderName, id, text string, timestampMs int64, fromMe, isGroup bool, mediaPath, mediaRef, quotedID, quotedSender, quotedText string)
 	// OnMediaReady reports that a received photo finished downloading to path (full size).
 	OnMediaReady(id, path string)
 	// OnReceipt reports message receipts. ids is comma-separated. kind is one of
@@ -214,13 +216,17 @@ func (c *Client) handleMessage(m *events.Message) {
 		return
 	}
 	mediaPath := c.saveMedia(m, true)
+	q := c.quoteOf(m.Message, nil)
 	c.l.OnMessage(c.canonical(m.Info.Chat, nil).String(), c.canonical(m.Info.Sender, nil).String(), m.Info.PushName, m.Info.ID,
-		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath, photoRef(m.Message))
+		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath, photoRef(m.Message), q.ID, q.Sender, q.Text)
 }
 
 // messageText is the body shown for a message: its text, or a placeholder such as "[image]"
 // for media. "" for protocol, reaction and system messages, which aren't shown.
 func messageText(msg *waE2E.Message) string {
+	if msg == nil {
+		return ""
+	}
 	text := msg.GetConversation()
 	if text == "" {
 		text = msg.GetExtendedTextMessage().GetText()

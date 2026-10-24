@@ -24,7 +24,15 @@ data class Msg(
     val media: String = "",
     /** Download info for the full photo (see [Photos]); "" if none. */
     val mediaRef: String = "",
+    /** For a reply: the ID of the message it answers; "" if it isn't one. */
+    val quoteId: String = "",
+    /** The answered message's author: a chat JID, "me" for our own, or "" when not known. */
+    val quoteSender: String = "",
+    /** What the answered message said, from the snapshot sent with the reply. */
+    val quoteText: String = "",
 ) {
+    val isReply: Boolean get() = quoteId.isNotEmpty()
+
     /** A photo we only have the small embedded preview of. */
     val needsFullPhoto: Boolean get() = !isVideo && mediaRef.isNotEmpty() && (media.isEmpty() || isThumbnailFile(media))
 
@@ -218,6 +226,9 @@ object MessageStore {
                     },
                 mediaRef = m.mediaRef.ifEmpty { old?.mediaRef.orEmpty() },
                 senderName = m.senderName.ifEmpty { old?.senderName.orEmpty() },
+                quoteId = m.quoteId.ifEmpty { old?.quoteId.orEmpty() },
+                quoteSender = m.quoteSender.ifEmpty { old?.quoteSender.orEmpty() },
+                quoteText = m.quoteText.ifEmpty { old?.quoteText.orEmpty() },
             )
         d.insertWithOnConflict("messages", null, ChatDb.values(merged), SQLiteDatabase.CONFLICT_REPLACE)
     }
@@ -515,6 +526,15 @@ object MessageStore {
     /** How many messages of [chat] are stored. */
     fun count(chat: String): Int =
         db?.rawQuery("SELECT COUNT(*) FROM messages WHERE chat = ?", arrayOf(chat))?.use { if (it.moveToFirst()) it.getInt(0) else 0 } ?: 0
+
+    /** How many messages of [chat] are at or after [ts]: how deep a thread must load to show one. */
+    fun countSince(
+        chat: String,
+        ts: Long,
+    ): Int =
+        db?.rawQuery("SELECT COUNT(*) FROM messages WHERE chat = ? AND ts >= ?", arrayOf(chat, ts.toString()))?.use {
+            if (it.moveToFirst()) it.getInt(0) else 0
+        } ?: 0
 
     /** The oldest stored message of [chat]: the anchor for asking the main phone for earlier ones. */
     fun oldest(chat: String): Msg? =

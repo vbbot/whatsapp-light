@@ -34,7 +34,10 @@ class ChatDb(
                 status INTEGER NOT NULL DEFAULT 0,
                 read_sent INTEGER NOT NULL DEFAULT 0,
                 media TEXT NOT NULL DEFAULT '',
-                media_ref TEXT NOT NULL DEFAULT ''
+                media_ref TEXT NOT NULL DEFAULT '',
+                quote_id TEXT NOT NULL DEFAULT '',
+                quote_sender TEXT NOT NULL DEFAULT '',
+                quote_text TEXT NOT NULL DEFAULT ''
             )
             """.trimIndent(),
         )
@@ -78,11 +81,17 @@ class ChatDb(
         }
         // 4: pinned chats.
         if (oldVersion < 4) db.execSQL("ALTER TABLE chats ADD COLUMN pinned_at INTEGER NOT NULL DEFAULT 0")
+        // 5: what a reply answers.
+        if (oldVersion < 5) {
+            db.execSQL("ALTER TABLE messages ADD COLUMN quote_id TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE messages ADD COLUMN quote_sender TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE messages ADD COLUMN quote_text TEXT NOT NULL DEFAULT ''")
+        }
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 4
+        const val VERSION = 5
 
         @Volatile private var shared: ChatDb? = null
 
@@ -104,6 +113,9 @@ class ChatDb(
                 put("read_sent", if (m.readSent) 1 else 0)
                 put("media", m.media)
                 put("media_ref", m.mediaRef)
+                put("quote_id", m.quoteId)
+                put("quote_sender", m.quoteSender)
+                put("quote_text", m.quoteText)
             }
 
         fun msg(c: Cursor) =
@@ -120,6 +132,9 @@ class ChatDb(
                 readSent = c.getInt(c.getColumnIndexOrThrow("read_sent")) == 1,
                 media = c.getString(c.getColumnIndexOrThrow("media")),
                 mediaRef = c.getString(c.getColumnIndexOrThrow("media_ref")),
+                quoteId = c.getString(c.getColumnIndexOrThrow("quote_id")),
+                quoteSender = c.getString(c.getColumnIndexOrThrow("quote_sender")),
+                quoteText = c.getString(c.getColumnIndexOrThrow("quote_text")),
             )
 
         fun values(r: CallRecord) =

@@ -40,6 +40,10 @@ type historyMsg struct {
 	Media  string `json:"media"`
 	// MediaRef lets DownloadPhoto fetch the full photo later (history keeps thumbnails only).
 	MediaRef string `json:"mediaRef"`
+	// The message this one replies to (see quote); empty when it isn't a reply.
+	QuotedID     string `json:"quotedId,omitempty"`
+	QuotedSender string `json:"quotedSender,omitempty"`
+	QuotedText   string `json:"quotedText,omitempty"`
 }
 
 type historyChat struct {
@@ -142,6 +146,7 @@ func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushN
 	if m.Info.IsFromMe {
 		status = historyStatus(web.GetStatus())
 	}
+	q := c.quoteOf(m.Message, mappings)
 	return historyMsg{
 		Chat:       c.canonical(m.Info.Chat, mappings).String(),
 		Sender:     c.canonical(m.Info.Sender, mappings).String(),
@@ -153,8 +158,11 @@ func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushN
 		IsGroup:    m.Info.IsGroup,
 		Status:     status,
 		// Thumbnails only: downloading every old photo would be slow and mostly unseen.
-		Media:    c.saveMedia(m, false),
-		MediaRef: photoRef(m.Message),
+		Media:        c.saveMedia(m, false),
+		MediaRef:     photoRef(m.Message),
+		QuotedID:     q.ID,
+		QuotedSender: q.Sender,
+		QuotedText:   q.Text,
 	}, true
 }
 

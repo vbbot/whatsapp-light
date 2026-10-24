@@ -95,6 +95,9 @@ object History {
                     status = it.optInt("status"),
                     media = it.optString("media"),
                     mediaRef = it.optString("mediaRef"),
+                    quoteId = it.optString("quotedId"),
+                    quoteSender = it.optString("quotedSender"),
+                    quoteText = it.optString("quotedText"),
                 )
             }
         // Old messages count as read (no blue ticks for them now), except the ones the phone

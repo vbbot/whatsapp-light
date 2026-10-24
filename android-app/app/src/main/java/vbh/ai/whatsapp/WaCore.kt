@@ -434,24 +434,55 @@ object WaCore : Listener {
             client!!.hangup(c.id)
         }
 
-    /** Sends a text message; shows it immediately as pending, then replaces it with the real one. */
+    /**
+     * Sends [text] to [chat], as a reply to [replyTo] if given. Shows it at once as pending;
+     * [onSent] runs once WhatsApp has it (a failure removes the row and shows the error).
+     */
     fun sendText(
         chat: String,
         text: String,
+        replyTo: Msg? = null,
+        onSent: () -> Unit = {},
     ) = bg {
         val body = text.trim()
         if (body.isEmpty()) return@bg
         val tmp = "pending-" + System.nanoTime()
-        MessageStore.add(Msg(tmp, chat, "me", "", body, System.currentTimeMillis(), true, chat.endsWith("@g.us"), pending = true))
+        val isGroup = chat.endsWith("@g.us")
+        val quote = replyTo?.let { Triple(it.id, quoteSenderOf(it), quoteSnippet(it)) }
+
+        fun msg(
+            id: String,
+            pending: Boolean,
+        ) = Msg(
+            id,
+            chat,
+            "me",
+            "",
+            body,
+            System.currentTimeMillis(),
+            true,
+            isGroup,
+            pending = pending,
+            status = if (pending) Status.NONE else Status.SENT,
+            quoteId = quote?.first.orEmpty(),
+            quoteSender = quote?.second.orEmpty(),
+            quoteText = quote?.third.orEmpty(),
+        )
+        MessageStore.add(msg(tmp, pending = true))
         try {
-            val id = client!!.sendText(chat, body)
+            val cl = client!!
+            val id = if (quote == null) cl.sendText(chat, body) else cl.sendReply(chat, body, quote.first, quote.second, quote.third)
             MessageStore.remove(tmp)
-            MessageStore.add(Msg(id, chat, "me", "", body, System.currentTimeMillis(), true, chat.endsWith("@g.us"), status = Status.SENT))
+            MessageStore.add(msg(id, pending = false))
+            onSent()
         } catch (e: Exception) {
             MessageStore.remove(tmp)
             throw e
         }
     }
+
+    /** A message's author as a reply records it: "me", or the sender's JID (the chat, in 1:1 chats). */
+    private fun quoteSenderOf(m: Msg) = if (m.fromMe) "me" else m.sender.ifEmpty { m.chat }
 
     /**
      * Sends a picked photo or video: shows it at once as a pending "[image]" / "[video]" row,
@@ -630,6 +661,9 @@ object WaCore : Listener {
         isGroup: Boolean,
         mediaPath: String,
         mediaRef: String,
+        quotedID: String,
+        quotedSender: String,
+        quotedText: String,
     ) {
         // Our own messages sent from another device have already reached the server.
         MessageStore.add(
@@ -645,6 +679,9 @@ object WaCore : Listener {
                 status = if (fromMe) Status.SENT else Status.NONE,
                 media = mediaPath,
                 mediaRef = mediaRef,
+                quoteId = quotedID,
+                quoteSender = quotedSender,
+                quoteText = quotedText,
             ),
         )
         if (!isGroup) resolve(chat)

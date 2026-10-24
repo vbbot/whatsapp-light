@@ -39,6 +39,12 @@ sealed interface Screen {
     /** Confirms logging out (Settings). */
     data object LogOut : Screen
 
+    /** What a long press on a message offers (REPLY). */
+    data class MessageMenu(
+        val chat: String,
+        val id: String,
+    ) : Screen
+
     /** Mute, archive and the other actions for one chat (long-press it, or tap its name in the thread). */
     data class ChatOptions(
         val chat: String,

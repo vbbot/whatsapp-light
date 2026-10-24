@@ -204,6 +204,7 @@ class MainActivity : ComponentActivity() {
                 is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
                 Screen.Permissions -> PermissionsScreen(firstRun = false) { Nav.pop() }
                 Screen.LogOut -> LogOutScreen()
+                is Screen.MessageMenu -> MessageMenuScreen(s.chat, s.id)
             }
         }
     }
