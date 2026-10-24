@@ -203,6 +203,10 @@ class MainActivity : ComponentActivity() {
                     ComposerScreen(s.chat)
                 }
 
+                is Screen.EditMessage -> {
+                    EditMessageScreen(s.chat, s.id)
+                }
+
                 is Screen.Contacts -> {
                     ContactsScreen(s.purpose)
                 }

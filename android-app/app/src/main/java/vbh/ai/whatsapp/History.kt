@@ -17,6 +17,18 @@ data class HistoryBatch(
     val calls: List<CallRecord>,
     /** Reactions on the batch's messages, with each message's chat. */
     val reactions: List<Pair<String, Reaction>> = emptyList(),
+    /** Edits and deletes-for-everyone of earlier messages. */
+    val edits: List<HistoryEdit> = emptyList(),
+)
+
+/** An edit of message [id] in a history batch ([text] is the new text), or a delete-for-everyone ([text] ""). */
+data class HistoryEdit(
+    val chat: String,
+    val id: String,
+    val text: String,
+    val ts: Long,
+    val fromMe: Boolean,
+    val sender: String,
 )
 
 /** A conversation's details in a history batch; [mutedUntil] as in [ChatState]. */
@@ -122,13 +134,32 @@ object History {
                     m.getString("chat") to Reaction(m.getString("id"), it.getString("reactor"), it.getString("emoji"), it.optLong("ts"))
                 }
             }
-        return HistoryBatch(o.optBoolean("onDemand"), o.optString("type"), o.optInt("progress"), messages, chats, calls, reactions)
+        val edits =
+            o.optJSONArray("edits").objects().map {
+                HistoryEdit(
+                    it.getString("chat"),
+                    it.getString("id"),
+                    it.optString("text"),
+                    it.optLong("ts"),
+                    it.optBoolean("fromMe"),
+                    it.optString("sender"),
+                )
+            }
+        return HistoryBatch(o.optBoolean("onDemand"), o.optString("type"), o.optInt("progress"), messages, chats, calls, reactions, edits)
     }
 
     fun import(batch: HistoryBatch) {
         MessageStore.batch {
             MessageStore.addAll(batch.messages)
             for ((chat, r) in batch.reactions) MessageStore.setReaction(chat, r.messageId, r.reactor, r.emoji, r.ts)
+            // After the messages, which they change. A delete's media file stays until logging out.
+            for (e in batch.edits) {
+                if (e.text.isEmpty()) {
+                    if (MessageStore.get(e.id)?.chat == e.chat) MessageStore.markDeleted(e.id)
+                } else {
+                    MessageStore.editMessage(e.chat, e.id, e.text, e.ts, e.fromMe, e.sender)
+                }
+            }
             for ((chat, info) in batch.chats) {
                 MessageStore.setChatName(chat, info.name)
                 if (!batch.onDemand) {

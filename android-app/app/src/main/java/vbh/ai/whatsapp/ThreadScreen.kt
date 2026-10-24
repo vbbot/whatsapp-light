@@ -409,8 +409,9 @@ private fun MessageRow(
             } else {
                 MessageBody(m, columnWidthPx, chatTitle)
             }
-            // Receipt tag in place of ticks: one quiet word under the message it applies to.
-            tag?.let { LightText(text = it, variant = LightTextVariant.Superfine, modifier = Modifier.padding(top = 1.dp)) }
+            // Receipt tag in place of ticks: one quiet word under the message it applies to, after
+            // "edited" when its author changed it.
+            editedNote(m, tag)?.let { LightText(text = it, variant = LightTextVariant.Superfine, modifier = Modifier.padding(top = 1.dp)) }
             // Reactions: one quiet line under the message, like the receipt word.
             reactions?.let { LightText(text = it, variant = LightTextVariant.Superfine, modifier = Modifier.padding(top = 1.dp)) }
         }
@@ -624,3 +625,9 @@ fun MediaViewerScreen(
         Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
     }
 }
+
+/** The quiet line under a message: "edited" if it was edited, then its receipt [tag], if any. */
+internal fun editedNote(
+    m: Msg,
+    tag: String?,
+): String? = listOfNotNull(if (m.editedAt > 0 && !m.isDeleted) "edited" else null, tag).joinToString(" · ").ifEmpty { null }

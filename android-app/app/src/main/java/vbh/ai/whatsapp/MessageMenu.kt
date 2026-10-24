@@ -34,7 +34,8 @@ import com.thelightphone.sdk.ui.lightClickable
 /**
  * What a long press on a message offers, laid out like a chat's options: who said what, centred,
  * then full-width actions, and ✕ to close: the reaction rows first (LIKE and REACT, or EDIT and
- * REMOVE REACTION once we've reacted), then REPLY and DELETE.
+ * REMOVE REACTION once we've reacted), then REPLY, EDIT (our own text messages, while WhatsApp
+ * allows it) and DELETE.
  */
 @Composable
 fun MessageMenuScreen(
@@ -95,6 +96,7 @@ fun MessageMenuScreen(
                     Drafts.setReply(chat, m.id)
                     Nav.replaceTop(Screen.Composer(chat))
                 }
+                if (canEdit(m, System.currentTimeMillis())) ToggleButton("EDIT") { Nav.replaceTop(Screen.EditMessage(chat, m.id)) }
             }
             if (!m.pending) ToggleButton("DELETE") { Nav.replaceTop(Screen.DeleteMessage(chat, m.id)) }
         }
@@ -245,3 +247,9 @@ fun ReactionPickerScreen(
 // The LP3 emoji panel's geometry (as Chats measures it).
 private val EMOJI_CELL = 46.dp
 private val EMOJI_SIZE = 24.sp
+
+/** Our own text message, recent enough that WhatsApp still lets us edit it. */
+fun canEdit(
+    m: Msg,
+    now: Long,
+): Boolean = m.fromMe && !m.pending && m.isText && now - m.ts < EDIT_WINDOW_MS
