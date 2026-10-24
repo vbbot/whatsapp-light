@@ -61,6 +61,15 @@ func videoOfRef(ref string) (*waE2E.VideoMessage, error) {
 	return vid, nil
 }
 
+// VideoBytes is the size of a video message's file from its mediaRef, or 0 if not known.
+func VideoBytes(ref string) int64 {
+	vid, err := videoOfRef(ref)
+	if err != nil {
+		return 0
+	}
+	return int64(vid.GetFileLength())
+}
+
 // VideoSeconds is the length of a video message from its mediaRef, or 0 if not known.
 func VideoSeconds(ref string) int {
 	vid, err := videoOfRef(ref)

@@ -42,6 +42,13 @@ object WaCore : Listener {
     fun prepare(context: Context) {
         if (!::app.isInitialized) app = context.applicationContext
         Media.dir = mediaDir()
+        Media.videoBytes = { m ->
+            runCatching {
+                vbh.ai.whatsapp.walib.Walib
+                    .videoBytes(m.mediaRef)
+            }.getOrDefault(0L)
+        }
+        Media.videoPreview = { id, video -> MediaSend.previewFrame(video, File(mediaDir(), mediaFileName(id) + "_p.jpg")) }
         if (WaState.logFile == null) WaState.logFile = java.io.File(app.filesDir, "wapoc.log")
         if (!::video.isInitialized) {
             video =
@@ -518,8 +525,8 @@ object WaCore : Listener {
         try {
             val media = MediaSend.prepare(app, uri)
             val label = if (media.kind == "image") "[image]" else "[video]"
-            // Keep our own copy to show in the thread: the photo itself, or a video's thumbnail.
-            local = File(mediaDir(), "$tmp.jpg").also { it.writeBytes(if (media.kind == "image") media.data else media.thumbnail) }
+            // Keep our own copy to show in the thread: the photo itself, or a sharp frame of the video.
+            local = File(mediaDir(), "$tmp.jpg").also { it.writeBytes(media.preview) }
             // And of a video itself, so our own videos play without downloading.
             if (media.kind == "video") Media.videoFile(tmp).writeBytes(media.data)
             MessageStore.add(Msg(tmp, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, pending = true, media = local.path))

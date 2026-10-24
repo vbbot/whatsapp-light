@@ -12,15 +12,16 @@ import kotlin.concurrent.thread
  * Downloads of full-size photos and of videos, for messages that only have their small embedded
  * preview (or none), which is all history sync brings. Two triggers share one queue:
  *
- * - [shown]: a photo came on screen. Fetched once per session. Videos are large, so they're
- *   never fetched just for scrolling past.
+ * - [shown]: a photo, or a video of up to [SHOWN_VIDEO_MAX_BYTES], came on screen. Fetched once
+ *   per session. Bigger videos wait to be opened.
  * - [opened]: a photo or video was opened. Goes ahead of everything shown, and tries again after
  *   an earlier failure.
  *
- * Then the most recently shown go first; a shown photo still waiting after [SHOWN_EXPIRY_MS] has
+ * Then the most recently shown go first; a shown one still waiting after [SHOWN_EXPIRY_MS] has
  * been scrolled past and is dropped. One download runs at a time. A finished photo becomes the
  * message's media file, so the thread and the viewer both switch to it; a finished video is
- * [videoFile].
+ * [videoFile], and a frame from it becomes the message's media file instead of the blurry
+ * embedded preview.
  */
 object Media {
     sealed interface State {
@@ -40,10 +41,19 @@ object Media {
     /** Downloads a message's video to [videoFile]; set by [WaCore] when the client starts. */
     @Volatile var videoDownloader: ((Msg) -> String)? = null
 
+    /** A video's file size from its download info (0 if not known); set by [WaCore]. */
+    @Volatile var videoBytes: ((Msg) -> Long)? = null
+
+    /** Saves a sharp frame of a video file as message [id]'s preview and returns its path, or null; set by [WaCore]. */
+    @Volatile var videoPreview: ((id: String, video: File) -> String?)? = null
+
     /** Where videos are kept; set by [WaCore]. */
     @Volatile var dir: File? = null
 
     private const val SHOWN_EXPIRY_MS = 60_000L
+
+    /** Videos up to this size are fetched as they come on screen, for a sharp preview. */
+    const val SHOWN_VIDEO_MAX_BYTES = 4L * 1024 * 1024
 
     private val queue = PriorityBlockingQueue<Job>()
     private val order = AtomicLong()
@@ -67,8 +77,14 @@ object Media {
     /** A video that can be downloaded and isn't here yet. */
     fun needsVideo(m: Msg): Boolean = m.isVideo && m.mediaRef.isNotEmpty() && !videoFile(m.id).exists()
 
+    /** A video that's here but still shows only its blurry embedded preview (or none). */
+    fun needsPreview(m: Msg): Boolean = m.isVideo && (m.media.isEmpty() || isThumbnailFile(m.media)) && videoFile(m.id).exists()
+
+    private fun fetchedWhenShown(m: Msg): Boolean =
+        m.needsFullPhoto || needsPreview(m) || (needsVideo(m) && (videoBytes?.invoke(m) ?: 0L) in 1..SHOWN_VIDEO_MAX_BYTES)
+
     fun shown(m: Msg) {
-        if (m.needsFullPhoto && attempted.add(m.id)) submit(m.id, opened = false)
+        if (fetchedWhenShown(m) && attempted.add(m.id)) submit(m.id, opened = false)
     }
 
     fun opened(m: Msg) {
@@ -88,6 +104,10 @@ object Media {
     private fun fetch(job: Job) {
         // Re-read: an earlier job may have fetched it already, or failed it (only opening retries).
         val m = MessageStore.get(job.id) ?: return
+        if (needsPreview(m)) {
+            preview(m)
+            return
+        }
         val video = needsVideo(m)
         if (!video && !m.needsFullPhoto) return
         if (!job.opened && states.value[job.id] is State.Failed) return
@@ -99,12 +119,19 @@ object Media {
         states.update { it + (job.id to State.Loading) }
         try {
             val path = download(m)
-            if (!video) MessageStore.setMedia(job.id, path)
+            if (video) preview(m) else MessageStore.setMedia(job.id, path)
             states.update { it - job.id }
         } catch (e: Exception) {
             WaState.log("${if (video) "video" else "photo"} ${job.id}: ${e.message}")
             states.update { it + (job.id to State.Failed(e.message ?: "download failed")) }
         }
+    }
+
+    private fun preview(m: Msg) {
+        val path = runCatching { videoPreview?.invoke(m.id, videoFile(m.id)) }.getOrNull() ?: return
+        MessageStore.setMedia(m.id, path)
+        // The blurry embedded preview it replaces.
+        if (isThumbnailFile(m.media)) File(m.media).delete()
     }
 
     internal class Job(

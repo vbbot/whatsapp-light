@@ -43,6 +43,7 @@ func TestMediaRefOfVideo(t *testing.T) {
 		DirectPath:    proto.String("/v/t62/vid"),
 		MediaKey:      []byte{4, 5},
 		Seconds:       proto.Uint32(42),
+		FileLength:    proto.Uint64(300_000),
 		JPEGThumbnail: make([]byte, 5000),
 		Caption:       proto.String("hi"),
 	}}
@@ -56,6 +57,9 @@ func TestMediaRefOfVideo(t *testing.T) {
 	}
 	if len(vid.GetJPEGThumbnail()) != 0 || vid.Caption != nil {
 		t.Error("thumbnail and caption should be left out")
+	}
+	if got := VideoBytes(ref); got != 300_000 {
+		t.Errorf("VideoBytes = %d", got)
 	}
 	if got := VideoSeconds(ref); got != 42 {
 		t.Errorf("VideoSeconds = %d, want 42", got)

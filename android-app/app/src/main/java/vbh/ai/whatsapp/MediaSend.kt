@@ -6,6 +6,7 @@ import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 /** A photo or video prepared for WhatsApp: bytes, metadata and a small JPEG thumbnail. */
 class PreparedMedia(
@@ -16,12 +17,15 @@ class PreparedMedia(
     val height: Int,
     val seconds: Int,
     val thumbnail: ByteArray,
+    /** What the thread shows for it: the photo itself, or a sharp frame of the video. */
+    val preview: ByteArray,
 )
 
 object MediaSend {
     private const val MAX_IMAGE_SIDE = 1600
     private const val MAX_VIDEO_BYTES = 64L * 1024 * 1024
     private const val THUMB_SIDE = 96
+    private const val PREVIEW_SIDE = 1080
 
     /**
      * Reads a picked photo or video. Photos are re-encoded as JPEG (max 1600 px, upright: the
@@ -42,7 +46,8 @@ object MediaSend {
                         decoder.setTargetSize((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1))
                         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                     }
-                PreparedMedia("image", jpeg(bmp, 82), "image/jpeg", bmp.width, bmp.height, 0, thumbnail(bmp))
+                val data = jpeg(bmp, 82)
+                PreparedMedia("image", data, "image/jpeg", bmp.width, bmp.height, 0, thumbnail(bmp), data)
             }
 
             type.startsWith("video/") -> {
@@ -71,6 +76,7 @@ object MediaSend {
                         h,
                         ((ms + 500) / 1000).toInt(),
                         frame?.let { thumbnail(it) } ?: ByteArray(0),
+                        frame?.let { preview(it) } ?: ByteArray(0),
                     )
                 } finally {
                     mmr.release()
@@ -81,6 +87,38 @@ object MediaSend {
                 error("Only photos and videos can be sent")
             }
         }
+    }
+
+    /**
+     * Saves the first frame of [video] as a sharp preview at [out] (JPEG, at most
+     * [PREVIEW_SIDE] px) and returns its path, or null if there's no frame.
+     */
+    fun previewFrame(
+        video: File,
+        out: File,
+    ): String? {
+        val mmr = MediaMetadataRetriever()
+        return try {
+            mmr.setDataSource(video.path)
+            val frame = mmr.getFrameAtTime(0) ?: return null
+            out.writeBytes(preview(frame))
+            out.path
+        } finally {
+            mmr.release()
+        }
+    }
+
+    private fun preview(bmp: Bitmap): ByteArray {
+        val scale = minOf(1f, PREVIEW_SIDE.toFloat() / maxOf(bmp.width, bmp.height))
+        if (scale >= 1f) return jpeg(bmp, 85)
+        val t =
+            Bitmap.createScaledBitmap(
+                bmp,
+                (bmp.width * scale).toInt().coerceAtLeast(1),
+                (bmp.height * scale).toInt().coerceAtLeast(1),
+                true,
+            )
+        return jpeg(t, 85)
     }
 
     private fun jpeg(

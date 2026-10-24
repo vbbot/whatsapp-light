@@ -32,6 +32,8 @@ class MediaTest {
     @After fun tearDown() {
         Media.photoDownloader = null
         Media.videoDownloader = null
+        Media.videoBytes = null
+        Media.videoPreview = null
         Media.dir?.deleteRecursively()
         db.close()
     }
@@ -126,5 +128,33 @@ class MediaTest {
         video("v4")
         photo("p4")
         assertEquals(listOf("v4"), MessageStore.videoIds("a@lid"))
+    }
+
+    @Test fun smallVideosDownloadWhenShownAndGetASharpPreview() {
+        Media.videoBytes = { m -> if (m.id == "small") 300_000L else Media.SHOWN_VIDEO_MAX_BYTES + 1 }
+        Media.videoDownloader = { m ->
+            calls += m.id
+            Media.videoFile(m.id).also { it.writeText("mp4") }.path
+        }
+        Media.videoPreview = { id, _ -> "/m/${id}_p.jpg" }
+        Media.shown(video("big"))
+        Media.shown(video("small"))
+        waitFor { MessageStore.get("small")?.media == "/m/small_p.jpg" }
+        assertEquals(listOf("small"), calls.toList())
+        assertFalse(Media.needsPreview(MessageStore.get("small")!!))
+    }
+
+    @Test fun aVideoAlreadyHereGetsItsPreviewWithoutDownloading() {
+        Media.videoDownloader = { m ->
+            calls += m.id
+            ""
+        }
+        Media.videoPreview = { id, _ -> "/m/${id}_p.jpg" }
+        val m = video("here")
+        Media.videoFile("here").writeText("mp4")
+        assertTrue(Media.needsPreview(m))
+        Media.shown(m)
+        waitFor { MessageStore.get("here")?.media == "/m/here_p.jpg" }
+        assertTrue(calls.isEmpty())
     }
 }
