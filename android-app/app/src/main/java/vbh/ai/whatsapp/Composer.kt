@@ -95,6 +95,39 @@ fun ComposerScreen(chat: String) {
     )
 }
 
+/**
+ * Editing our own message: its text to change, then SAVE. Nothing changes until WhatsApp accepts;
+ * if it refuses (for example once the time to edit has passed), the reason shows in the thread.
+ */
+@Composable
+fun EditMessageScreen(
+    chat: String,
+    id: String,
+) {
+    val m = remember(id) { MessageStore.get(id) }
+    if (m == null || !m.isText) {
+        StatusText("This message can't be edited.")
+        return
+    }
+    val state = rememberTextFieldState(m.text)
+    MessageEditor(
+        title = "Edit message",
+        state = state,
+        header = null,
+        onSubmit = { text ->
+            val body = text.toString().trim()
+            if (body.isNotEmpty() && body != m.text) {
+                WaCore.editMessage(m, body) { error ->
+                    if (error != null) WaState.error.value = "Couldn't edit the message ($error). Check the connection and try again."
+                }
+            }
+            Nav.pop()
+        },
+        onBack = { Nav.pop() },
+        submitLabel = "SAVE",
+    )
+}
+
 /** The pending reply above the text: its quote line, and ✕ to send without it. */
 @Composable
 private fun ReplyHeader(
@@ -162,6 +195,7 @@ private fun MessageEditor(
     header: (@Composable () -> Unit)?,
     onSubmit: (CharSequence) -> Unit,
     onBack: () -> Unit,
+    submitLabel: String? = null,
 ) {
     val hapticsEnabled = LocalHapticsEnabled.current
     val context = LocalContext.current
@@ -238,9 +272,13 @@ private fun MessageEditor(
                 LightBottomBar(
                     items =
                         listOf(
-                            LightBarButton.LightIcon(icon = LightIcons.SEND, onClick = {
-                                onSubmit(state.text)
-                            }, contentDescription = "Send"),
+                            if (submitLabel != null) {
+                                LightBarButton.Text(text = submitLabel, onClick = { onSubmit(state.text) })
+                            } else {
+                                LightBarButton.LightIcon(icon = LightIcons.SEND, onClick = {
+                                    onSubmit(state.text)
+                                }, contentDescription = "Send")
+                            },
                         ),
                 )
             },

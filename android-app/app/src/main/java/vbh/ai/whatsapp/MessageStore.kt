@@ -30,11 +30,16 @@ data class Msg(
     val quoteSender: String = "",
     /** What the answered message said, from the snapshot sent with the reply. */
     val quoteText: String = "",
+    /** When its author last edited it (Unix ms); 0 if never. */
+    val editedAt: Long = 0L,
 ) {
     val isReply: Boolean get() = quoteId.isNotEmpty()
 
     /** Deleted for everyone: kept as a "deleted" line in place of what it said. */
     val isDeleted: Boolean get() = text == DELETED_TEXT
+
+    /** Plain text: not media or another placeholder, so its text can be edited. */
+    val isText: Boolean get() = !isDeleted && MEDIA_PLACEHOLDERS.none { text.startsWith(it) }
 
     /** A photo we only have the small embedded preview of, or a sticker not downloaded yet. */
     val needsFullPhoto: Boolean get() = !isVideo && mediaRef.isNotEmpty() && (media.isEmpty() || isThumbnailFile(media))
@@ -79,11 +84,17 @@ fun reactionLine(reactions: List<Reaction>): String =
         .entries
         .joinToString(" · ") { (emoji, who) -> if (who.size > 1) "$emoji ${who.size}" else emoji }
 
+/** walib's bodies for messages that aren't text. */
+private val MEDIA_PLACEHOLDERS = listOf("[image]", "[video]", "[gif]", "[voice message]", "[document]", "[sticker]")
+
 /** What a message deleted for everyone is stored as (its content is gone). */
 const val DELETED_TEXT = "[deleted]"
 
 /** How long after sending WhatsApp lets a message be deleted for everyone (about 2.5 days). */
 const val REVOKE_WINDOW_MS = 60 * 60 * 60_000L
+
+/** How long after sending WhatsApp lets a message be edited. */
+const val EDIT_WINDOW_MS = 15 * 60_000L
 
 /** walib saves a message's embedded preview as "<id>_t.jpg" and the full photo as "<id>.jpg". */
 fun isThumbnailFile(path: String): Boolean = path.endsWith("_t.jpg")
@@ -256,8 +267,17 @@ object MessageStore {
         // Never lose progress when a message is re-delivered (echo from another device, history).
         // A message deleted for everyone stays deleted, whatever re-delivers it.
         if (old?.isDeleted == true) return
+        // History may say a message we have was deleted since: it keeps only its place.
+        if (old != null && m.isDeleted) {
+            d.update("messages", deletedValues(), "id = ?", arrayOf(m.id))
+            return
+        }
+        // An edit outlives the original being delivered again.
+        val keepEdit = old != null && old.editedAt > m.editedAt
         val merged =
             m.copy(
+                text = if (keepEdit) old.text else m.text,
+                editedAt = maxOf(m.editedAt, old?.editedAt ?: 0L),
                 status = maxOf(m.status, old?.status ?: Status.NONE, earlyReceipts.remove(m.id) ?: Status.NONE),
                 readSent = m.readSent || old?.readSent == true,
                 // Never swap a downloaded photo back for its thumbnail (history re-sends those).
@@ -294,17 +314,48 @@ object MessageStore {
     fun markDeleted(id: String): String? {
         val d = db ?: return null
         val media = get(id)?.media
+        if (d.update("messages", deletedValues(), "id = ?", arrayOf(id)) > 0) changed()
+        return media?.ifEmpty { null }
+    }
+
+    private fun deletedValues() =
+        android.content.ContentValues().apply {
+            put("text", DELETED_TEXT)
+            put("media", "")
+            put("media_ref", "")
+            put("quote_id", "")
+            put("quote_sender", "")
+            put("quote_text", "")
+            put("edited_at", 0L)
+        }
+
+    /**
+     * Applies an edit of message [id] in [chat]: it now says [text], edited at [at]. Only its
+     * author may edit it, so the editor ([byMe], or [by] in a group) must match; an older edit
+     * than the one stored, or an edit of a deleted message, changes nothing. Returns whether it
+     * applied.
+     */
+    @Synchronized
+    fun editMessage(
+        chat: String,
+        id: String,
+        text: String,
+        at: Long,
+        byMe: Boolean,
+        by: String,
+    ): Boolean {
+        val d = db ?: return false
+        val m = get(id) ?: return false
+        val author = m.chat == chat && m.fromMe == byMe && (byMe || !m.isGroup || m.sender == by)
+        if (!author || m.isDeleted || at <= m.editedAt) return false
         val values =
             android.content.ContentValues().apply {
-                put("text", DELETED_TEXT)
-                put("media", "")
-                put("media_ref", "")
-                put("quote_id", "")
-                put("quote_sender", "")
-                put("quote_text", "")
+                put("text", text)
+                put("edited_at", at)
             }
-        if (d.update("messages", values, "id = ?", arrayOf(id)) > 0) changed()
-        return media?.ifEmpty { null }
+        val done = d.update("messages", values, "id = ?", arrayOf(id)) > 0
+        if (done) changed()
+        return done
     }
 
     /**

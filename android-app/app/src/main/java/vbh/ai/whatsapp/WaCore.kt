@@ -692,6 +692,50 @@ object WaCore : Listener {
         }
     }
 
+    override fun onMessageEdited(
+        chat: String,
+        id: String,
+        text: String,
+        editedAtMs: Long,
+        fromMe: Boolean,
+        sender: String,
+    ) {
+        Wake.hold(2_000)
+        if (!MessageStore.editMessage(chat, id, text, editedAtMs, fromMe, sender)) WaState.log("edit of $id not applied")
+    }
+
+    override fun onMessageRevoked(
+        chat: String,
+        id: String,
+        fromMe: Boolean,
+        sender: String,
+    ) {
+        Wake.hold(2_000)
+        // Its author or (in groups) an admin deleted it; WhatsApp checks which may.
+        if (MessageStore.get(id)?.chat != chat) return
+        removeMedia(id, MessageStore.markDeleted(id))
+    }
+
+    /**
+     * Changes the text of our own message [m] to [text] for everyone. WhatsApp is told first; only
+     * once it accepts does the message change here. [onDone] gets the error, or null.
+     */
+    fun editMessage(
+        m: Msg,
+        text: String,
+        onDone: (error: String?) -> Unit,
+    ) = thread(name = "wa-edit-msg") {
+        try {
+            val cl = client ?: error("not connected")
+            cl.editMessage(m.chat, m.id, text)
+            MessageStore.editMessage(m.chat, m.id, text, System.currentTimeMillis(), byMe = true, by = "")
+            onDone(null)
+        } catch (e: Exception) {
+            WaState.log("edit message failed: ${e.message}")
+            onDone(e.message ?: "unknown error")
+        }
+    }
+
     override fun onMessageDeleted(
         chat: String,
         id: String,
