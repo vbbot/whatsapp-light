@@ -437,6 +437,8 @@ private fun MessageBody(
     } else if (m.hasPicture || m.isVideo) {
         val open = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle, video = m.isVideo, gif = m.isGif)) }
         // Media is the one place colour is allowed: shown as-is, tap for full screen.
+        // Videos without a preview still fetch theirs (and GIFs their file) on coming on screen.
+        if (m.isVideo && !m.hasPicture) LaunchedEffect(m.id) { Media.shown(m) }
         if (m.hasPicture) MediaThumb(m, onOpen = open)
         // A preview carries its own marks (see MediaThumb); without one, a line says what it is.
         if (m.isVideo && !m.hasPicture) {
@@ -563,6 +565,8 @@ private fun MediaThumb(
         if (!m.isVideo) LightText(text = "[Photo]", variant = LightTextVariant.Paragraph, modifier = open.padding(top = 1.dp))
         return
     }
+    // A GIF that's here plays in its place, over its preview until the first frame shows.
+    val gif = remember(m.id, m.media) { Media.videoFile(m.id).takeIf { m.isGif && it.exists() } }
     Box(Modifier.fillMaxWidth(0.7f).aspectRatio(aspect).then(open), contentAlignment = Alignment.Center) {
         bmp?.let {
             Image(
@@ -572,7 +576,8 @@ private fun MediaThumb(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        if (m.isVideo) {
+        gif?.let { InlineGif(it, Modifier.fillMaxSize()) }
+        if (m.isVideo && !m.isGif) {
             PlayBadge()
             // Its length on the picture, so it can't be read as the message's time.
             videoLength(rememberVideoSeconds(m)).takeIf { it.isNotEmpty() }?.let {

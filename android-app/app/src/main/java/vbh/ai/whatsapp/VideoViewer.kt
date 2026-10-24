@@ -286,37 +286,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.VideoPlayer(
             StatusText("Couldn't play this video")
         } else {
             AndroidView(
-                factory = { ctx ->
-                    TextureView(ctx).apply {
-                        surfaceTextureListener =
-                            object : TextureView.SurfaceTextureListener {
-                                private var surface: Surface? = null
-
-                                override fun onSurfaceTextureAvailable(
-                                    st: SurfaceTexture,
-                                    width: Int,
-                                    height: Int,
-                                ) {
-                                    surface = Surface(st).also { if (!released) player.setSurface(it) }
-                                }
-
-                                override fun onSurfaceTextureSizeChanged(
-                                    st: SurfaceTexture,
-                                    width: Int,
-                                    height: Int,
-                                ) = Unit
-
-                                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                                    if (!released) runCatching { player.setSurface(null) }
-                                    surface?.release()
-                                    surface = null
-                                    return true
-                                }
-
-                                override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
-                            }
-                    }
-                },
+                factory = { ctx -> videoTexture(ctx, player) { released } },
                 // As large as fits at the video's shape; square until its size is known.
                 modifier = Modifier.aspectRatio(if (aspect > 0f) aspect else 1f),
             )
@@ -415,4 +385,89 @@ internal fun LengthTag(
                 .background(LightThemeTokens.colors.background, RoundedCornerShape(2.dp))
                 .padding(horizontal = 4.dp, vertical = 1.dp),
     )
+}
+
+/** A view showing [player]'s picture while it's attached; [released] says the player is gone. */
+private fun videoTexture(
+    context: Context,
+    player: MediaPlayer,
+    released: () -> Boolean,
+): TextureView =
+    TextureView(context).apply {
+        surfaceTextureListener =
+            object : TextureView.SurfaceTextureListener {
+                private var surface: Surface? = null
+
+                override fun onSurfaceTextureAvailable(
+                    st: SurfaceTexture,
+                    width: Int,
+                    height: Int,
+                ) {
+                    surface = Surface(st).also { if (!released()) player.setSurface(it) }
+                }
+
+                override fun onSurfaceTextureSizeChanged(
+                    st: SurfaceTexture,
+                    width: Int,
+                    height: Int,
+                ) = Unit
+
+                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                    if (!released()) runCatching { player.setSurface(null) }
+                    surface?.release()
+                    surface = null
+                    return true
+                }
+
+                override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
+            }
+    }
+
+/**
+ * A GIF playing in the thread: muted and looping while it's on screen and the app is in front.
+ * [modifier] gives it its size.
+ */
+@Composable
+internal fun InlineGif(
+    file: File,
+    modifier: Modifier,
+) {
+    val player = remember(file) { MediaPlayer() }
+    var released by remember(file) { mutableStateOf(false) }
+    var prepared by remember(file) { mutableStateOf(false) }
+    DisposableEffect(player) {
+        player.setOnPreparedListener {
+            prepared = true
+            it.setVolume(0f, 0f)
+            it.isLooping = true
+            it.start()
+        }
+        player.setOnErrorListener { _, what, extra ->
+            WaState.log("gif player error $what/$extra")
+            true
+        }
+        try {
+            player.setDataSource(file.path)
+            player.prepareAsync()
+        } catch (e: Exception) {
+            WaState.log("gif player: ${e.message}")
+        }
+        onDispose {
+            released = true
+            player.release()
+        }
+    }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, player) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (released || !prepared) return@LifecycleEventObserver
+                if (event == Lifecycle.Event.ON_PAUSE && player.isPlaying) player.pause()
+                if (event == Lifecycle.Event.ON_RESUME && !player.isPlaying) player.start()
+            }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    // See-through until its first frame, so the preview under it shows meanwhile.
+    AndroidView(factory = { ctx -> videoTexture(ctx, player) { released }.apply { isOpaque = false } }, modifier = modifier)
 }
