@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/polymorfa/hypermeow/appstate"
@@ -34,13 +35,26 @@ func (c *Client) handleArchive(e *events.Archive) {
 }
 
 // handleDeleteChat reports a chat deleted (or cleared, keeping the chat) on another device:
-// messages up to the end of the action's range go.
+// messages up to the end of the action's range go. The range also names its last messages by ID,
+// which the app matches too: our own sent messages are stored with the time they were sent here,
+// which can be a little after the server time the range ends at.
 func (c *Client) handleDeleteChat(jid types.JID, r *waSyncAction.SyncActionMessageRange, at time.Time, keepChat bool, fullSync bool) {
 	chat := c.canonical(jid, nil).String()
 	before := deletedBefore(r, at)
-	c.l.OnLog(fmt.Sprintf("chat deleted elsewhere: %s (as %s) up to %d (range %d, %d msgs, at %d) keepChat=%v fullSync=%v",
-		jid, chat, before, r.GetLastMessageTimestamp(), len(r.GetMessages()), at.UnixMilli(), keepChat, fullSync))
-	c.l.OnChatDeleted(chat, before, keepChat)
+	ids := rangeIDs(r)
+	c.l.OnLog(fmt.Sprintf("chat deleted elsewhere: %s up to %d (%d msgs named) keepChat=%v fullSync=%v", chat, before, len(ids), keepChat, fullSync))
+	c.l.OnChatDeleted(chat, before, keepChat, strings.Join(ids, ","))
+}
+
+// rangeIDs is the IDs of the messages an app-state range names (usually the chat's last one).
+func rangeIDs(r *waSyncAction.SyncActionMessageRange) []string {
+	var ids []string
+	for _, m := range r.GetMessages() {
+		if id := m.GetKey().GetID(); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // deletedBefore is the Unix ms up to which messages are deleted: the range's last message time

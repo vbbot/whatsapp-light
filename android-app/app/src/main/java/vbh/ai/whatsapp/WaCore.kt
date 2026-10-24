@@ -559,8 +559,12 @@ object WaCore : Listener {
         chat: String,
         beforeMs: Long,
         keepChat: Boolean,
+        ids: String,
     ) {
-        removeChat(chat, beforeMs, keepChat)
+        // Up to the named messages too: ours are stored with this phone's send time, which can
+        // be just after the server time the range ends at.
+        val named = MessageStore.newestOf(chat, ids.split(',').filter { it.isNotBlank() })
+        removeChat(chat, maxOf(beforeMs, named ?: 0L), keepChat)
         // Deleted while open: leave its screens.
         if (!keepChat) Nav.dropChat(chat)
     }

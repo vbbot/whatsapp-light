@@ -56,4 +56,12 @@ class DeleteChatTest {
         assertTrue(MessageStore.thread("a@lid", 10).isEmpty())
         assertEquals(MUTED_FOREVER, MessageStore.chatState("a@lid")?.mutedUntil)
     }
+
+    @Test fun namedMessagesSayHowFarADeletionGoes() {
+        // Our own message, stored with this phone's clock a moment after the server's time.
+        MessageStore.addAll(listOf(m("1", "a@lid", 1_000), m("mine", "a@lid", 2_400)))
+        assertEquals(2_400L, MessageStore.newestOf("a@lid", listOf("mine", "unknown")))
+        assertEquals(null, MessageStore.newestOf("a@lid", listOf("unknown")))
+        assertEquals(null, MessageStore.newestOf("b@lid", listOf("mine")))
+    }
 }

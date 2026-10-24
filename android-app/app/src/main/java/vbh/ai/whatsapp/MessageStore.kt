@@ -328,6 +328,19 @@ object MessageStore {
         changed()
     }
 
+    /** The newest stored time among the messages [ids] of [chat]; null if none is stored. */
+    fun newestOf(
+        chat: String,
+        ids: List<String>,
+    ): Long? {
+        val d = db ?: return null
+        if (ids.isEmpty()) return null
+        val marks = ids.joinToString(",") { "?" }
+        return d.rawQuery("SELECT MAX(ts) FROM messages WHERE chat = ? AND id IN ($marks)", arrayOf(chat) + ids).use {
+            if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else null
+        }
+    }
+
     /**
      * Deletes [chat]'s messages at or before [beforeMs]. Unless [keepChat] (a clear), the chat
      * itself goes too (name, archive, mute and pin) once no newer messages remain. Returns the

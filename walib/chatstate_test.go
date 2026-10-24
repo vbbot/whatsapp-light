@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/polymorfa/hypermeow/proto/waCommon"
 	"github.com/polymorfa/hypermeow/proto/waSyncAction"
 	"google.golang.org/protobuf/proto"
 )
@@ -42,5 +43,18 @@ func TestDeletedBefore(t *testing.T) {
 	}
 	if got := deletedBefore(nil, at); got != 5_000_000 {
 		t.Errorf("no range: got %d, want the deletion time", got)
+	}
+}
+
+func TestRangeIDs(t *testing.T) {
+	r := &waSyncAction.SyncActionMessageRange{Messages: []*waSyncAction.SyncActionMessage{
+		{Key: &waCommon.MessageKey{ID: proto.String("A1")}},
+		{Key: &waCommon.MessageKey{}},
+	}}
+	if got := rangeIDs(r); len(got) != 1 || got[0] != "A1" {
+		t.Errorf("got %v, want [A1]", got)
+	}
+	if rangeIDs(nil) != nil {
+		t.Error("no range, no IDs")
 	}
 }
