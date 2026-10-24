@@ -169,7 +169,12 @@ private fun GroupVideoGrid(
             delay(1000)
         }
     }
-    val shown = videoTiles(tiles.keys.associateWith { WaCore.video.lastFrameAt(it) }, call.members, now.longValue)
+    val shown =
+        videoTiles(
+            tiles.filterValues { it.cameraOn }.keys.associateWith { WaCore.video.lastFrameAt(it) },
+            call.members,
+            now.longValue,
+        )
     if (shown.isEmpty()) {
         StatusText(if (call.phase < 4) call.phaseLabel else "no video")
         return
@@ -188,7 +193,7 @@ private fun GroupVideoGrid(
                             RotatedVideo(
                                 frameW = t.width,
                                 frameH = t.height,
-                                quarterTurns = (4 - t.orientation) % 4,
+                                quarterTurns = t.quarterTurns,
                                 mirror = false,
                                 boxW = cellW,
                                 boxH = cellH,

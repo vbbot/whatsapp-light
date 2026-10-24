@@ -1126,7 +1126,7 @@ func (e *engine) onCallRaw(callNode *waBinary.Node) bool {
 		// (state=11) acceptance signal. whatsmeow's generic typeless ack does not satisfy the
 		// sender, which then cancels the upgrade after ~5s before streaming any video.
 		e.ackVideoStanza(callNode)
-		e.onVideoStanza(&kids[0])
+		e.onVideoStanzaFrom(callNode.AttrGetter().OptionalJIDOrEmpty("from"), &kids[0])
 		return true
 	}
 	return false
@@ -1151,7 +1151,11 @@ func (e *engine) ackVideoStanza(callNode *waBinary.Node) {
 // onVideoStanza handles an inbound standalone <video> state stanza — the peer's video
 // on/off and device orientation — and fires the Call's OnVideoState listener. whatsmeow
 // surfaces no event for it (same as mute_v2), so it is intercepted here.
-func (e *engine) onVideoStanza(v *waBinary.Node) {
+func (e *engine) onVideoStanza(v *waBinary.Node) { e.onVideoStanzaFrom(types.EmptyJID, v) }
+
+// onVideoStanzaFrom handles a <video> state change sent by from (wa-poc patch: in a group call
+// each participant sends their own, and VideoState.Sender says whose it is).
+func (e *engine) onVideoStanzaFrom(from types.JID, v *waBinary.Node) {
 	ag := v.AttrGetter()
 	callID := ag.String("call-id")
 	if callID == "" {
@@ -1238,6 +1242,7 @@ func (e *engine) onVideoStanza(v *waBinary.Node) {
 				Upgrade:     state == signaling.VideoStateUpgradeRequest || state == signaling.VideoStateUpgradeRequestV2,
 				Orientation: orientation,
 				Raw:         state,
+				Sender:      from,
 			})
 		}
 	}

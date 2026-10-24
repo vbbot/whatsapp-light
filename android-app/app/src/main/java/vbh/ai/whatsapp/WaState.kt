@@ -50,9 +50,13 @@ data class CallUi(
             }
 }
 
-/** A group call participant's video: the turn their frames carry, and their size once known. */
+/**
+ * A group call participant's video: the quarter turns clockwise that show their frames upright,
+ * whether their camera is on, and their frame size once known.
+ */
 data class VideoTile(
-    val orientation: Int = 0,
+    val quarterTurns: Int = 0,
+    val cameraOn: Boolean = true,
     val width: Int = VideoEngine.WIDTH,
     val height: Int = VideoEngine.HEIGHT,
 )

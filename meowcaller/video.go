@@ -53,6 +53,8 @@ type VideoState struct {
 	Orientation int
 	// Raw is the unmapped "state" attribute value.
 	Raw int
+	// Sender is who sent it: in a group call, the participant whose camera this is.
+	Sender types.JID
 }
 
 // ParticipantVideoFrame is one authenticated H.264 access unit attributed to a

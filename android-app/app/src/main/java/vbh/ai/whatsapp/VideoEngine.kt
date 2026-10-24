@@ -457,10 +457,26 @@ class VideoEngine(
                     onSize = { w, h -> updateTile(participant) { it.copy(width = w, height = h) } },
                 )
             }
-        val turns = orientation.toInt()
-        if (WaState.groupVideo.value[participant]?.orientation != turns) updateTile(participant) { it.copy(orientation = turns) }
+        // Their packets may carry a counter-clockwise turn, as in 1:1 calls; usually in a group
+        // call they don't (-1), and the turn comes from their video state ([participantState]).
+        val o = orientation.toInt()
+        if (o >= 0) {
+            val turns = (4 - o) % 4
+            if (WaState.groupVideo.value[participant]?.quarterTurns != turns) updateTile(participant) { it.copy(quarterTurns = turns) }
+        }
+        if (participant !in WaState.groupVideo.value) updateTile(participant) { it }
         d.frame(accessUnit)
     }
+
+    /**
+     * A group call participant's camera state: on or off, and the clockwise quarter turns
+     * ([orientation]) that show their frames upright (sent this way, unlike the packets' turn).
+     */
+    fun participantState(
+        participant: String,
+        active: Boolean,
+        orientation: Int,
+    ) = updateTile(participant) { it.copy(quarterTurns = orientation.mod(4), cameraOn = active) }
 
     private fun updateTile(
         participant: String,

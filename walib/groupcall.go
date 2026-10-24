@@ -70,7 +70,7 @@ func (c *Client) receiveGroupVideo(call *meowcaller.Call) {
 		if r == nil {
 			return
 		}
-		r.ParticipantFrame(participantKey(f, c.canonical), max(f.Orientation, 0), f.AccessUnit)
+		r.ParticipantFrame(participantKey(f, c.canonical), f.Orientation, f.AccessUnit)
 	})
 }
 
