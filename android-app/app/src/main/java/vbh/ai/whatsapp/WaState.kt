@@ -29,6 +29,14 @@ data class CallUi(
     val remoteOrientation: Int = 0,
     /** Our video comes from the front camera (false: rear). */
     val frontCamera: Boolean = true,
+    /** A group call; [group], [members] and [joined] describe it. */
+    val groupCall: Boolean = false,
+    /** The group chat the call belongs to, or "" for a call between chosen people. */
+    val group: String = "",
+    /** The other participants, the caller first. */
+    val members: List<String> = emptyList(),
+    /** Those of [members] in the call now. */
+    val joined: List<String> = emptyList(),
 ) {
     val phaseLabel: String
         get() =

@@ -193,6 +193,35 @@ fun rememberTitle(chat: String): String {
     return rememberQuery(chat, changes, names, phones, initial = initial) { MessageStore.title(chat) } ?: initial
 }
 
+/** A call's title: the person's name, or for a group call its group or participants ([groupCallTitle]). */
+@Composable
+fun rememberCallTitle(c: CallUi): String {
+    if (!c.groupCall) return rememberTitle(callPeer(c))
+    val changes by MessageStore.changes.collectAsState()
+    val names by MessageStore.names.collectAsState()
+    val phones by MessageStore.phones.collectAsState()
+    val query = { groupCallTitle(c.group.takeIf { it.isNotEmpty() }?.let(MessageStore::title), c.members.map(MessageStore::title)) }
+    val initial = remember(c.group, c.members) { query() }
+    return rememberQuery(c.group, c.members, changes, names, phones, initial = initial, query = query) ?: initial
+}
+
+/** Who's in a group call now, by name; "" before anyone has joined, or for a 1:1 call. */
+@Composable
+fun rememberCallJoined(c: CallUi): String {
+    if (!c.groupCall) return ""
+    val names by MessageStore.names.collectAsState()
+    val phones by MessageStore.phones.collectAsState()
+    return rememberQuery(c.joined, names, phones, initial = "") { groupCallJoined(c.joined.map(MessageStore::title)) } ?: ""
+}
+
+/** The caller of a group call that belongs to a group, by name; "" otherwise. */
+@Composable
+fun rememberGroupCaller(c: CallUi): String =
+    if (c.groupCall && c.group.isNotEmpty() && c.members.isNotEmpty()) rememberTitle(c.members.first()) else ""
+
+/** The caller's chat JID, so the title is a name or number, never a raw LID. */
+fun callPeer(c: CallUi): String = if (c.peer.contains("@")) normalizeJid(c.peer) else "${c.peer.removePrefix("+")}@s.whatsapp.net"
+
 /**
  * Runs [query] off the main thread and again whenever one of [keys] changes. Null until the first
  * result. A run always finishes: changes made meanwhile (history sync makes many) are folded into
@@ -771,8 +800,18 @@ fun IncomingCallScreen(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            val caller = rememberGroupCaller(call)
+            if (caller.isNotEmpty()) {
+                LightText(
+                    text = "$caller is calling",
+                    variant = LightTextVariant.Paragraph,
+                    align = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             LightText(
-                text = if (call.video) "incoming video call" else "incoming call",
+                text = incomingLabel(call),
                 variant = LightTextVariant.Heading,
                 align = TextAlign.Center,
                 modifier = Modifier.padding(top = 1f.gridUnitsAsDp()),
@@ -838,6 +877,17 @@ fun InCallScreen(
                 align = TextAlign.Center,
                 modifier = Modifier.padding(top = 1f.gridUnitsAsDp()),
             )
+            val joined = rememberCallJoined(call)
+            if (joined.isNotEmpty()) {
+                LightText(
+                    text = "with $joined",
+                    variant = LightTextVariant.Paragraph,
+                    align = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 1f.gridUnitsAsDp()),
+                )
+            }
         }
         LightBottomBar(
             modifier = Modifier.navigationBarsPadding(),

@@ -51,6 +51,8 @@ type Call struct {
 // GroupCallState is a sanitized group-call roster. Transaction zero may contain
 // selected outgoing targets before the first authoritative server transaction.
 type GroupCallState struct {
+	// GroupJID is the WhatsApp group the call belongs to; empty for an ad-hoc call.
+	GroupJID       types.JID
 	TransactionID  uint32
 	RekeyRequested bool
 	Participants   []GroupCallParticipant
@@ -204,6 +206,7 @@ func (c *Call) setGroupState(state GroupCallState) {
 func groupCallStateFromUpdate(update groupCallUpdate) GroupCallState {
 	// Source of truth: https://github.com/purpshell/meowcaller/blob/a95ab63017f996313ca7e4cfbbfb96fead1717a7/datasheets/api-group-call-state.md#L58-L68
 	state := GroupCallState{
+		GroupJID:       update.GroupJID,
 		TransactionID:  update.TransactionID,
 		RekeyRequested: update.RekeyRequested,
 		Participants:   make([]GroupCallParticipant, len(update.Participants)),

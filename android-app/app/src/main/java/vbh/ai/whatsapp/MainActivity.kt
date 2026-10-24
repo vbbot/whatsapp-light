@@ -147,21 +147,21 @@ class MainActivity : ComponentActivity() {
                 c != null && c.incoming && c.phase < 3 -> {
                     IncomingCallScreen(
                         c,
-                        rememberTitle(callPeer(c)),
+                        rememberCallTitle(c),
                     )
                 }
 
                 c != null && c.video && (c.localVideo || c.remoteVideo) -> {
                     VideoCallScreen(
                         c,
-                        rememberTitle(callPeer(c)),
+                        rememberCallTitle(c),
                     )
                 }
 
                 c != null -> {
                     InCallScreen(
                         c,
-                        rememberTitle(callPeer(c)),
+                        rememberCallTitle(c),
                     )
                 }
 
@@ -274,8 +274,4 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    /** The caller's chat JID, so the title is a name or number, never a raw LID. */
-    private fun callPeer(c: CallUi): String =
-        if (c.peer.contains("@")) normalizeJid(c.peer) else "${c.peer.removePrefix("+")}@s.whatsapp.net"
 }

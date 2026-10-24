@@ -65,7 +65,7 @@ func TestActiveGroupInviteResponsesUseCallScope(t *testing.T) {
 		t.Fatalf("preaccept children = %v", got)
 	}
 
-	accept, err := BuildActiveGroupAccept("CID", creator, "ACCEPT")
+	accept, err := BuildActiveGroupAccept("CID", creator, "ACCEPT", false)
 	if err != nil {
 		t.Fatalf("BuildActiveGroupAccept: %v", err)
 	}
@@ -77,6 +77,15 @@ func TestActiveGroupInviteResponsesUseCallScope(t *testing.T) {
 	}
 	if _, ok := getChild(t, contentNodes(t, accept)[0], "group_info"); ok {
 		t.Fatal("active group accept must not repeat group_info")
+	}
+
+	// A video call's accept advertises the decoder after the audio, as WhatsApp Web does.
+	video, err := BuildActiveGroupAccept("CID", creator, "ACCEPT", true)
+	if err != nil {
+		t.Fatalf("BuildActiveGroupAccept video: %v", err)
+	}
+	if got := childTags(t, video); !eqTags(got, []string{"audio", "video", "net", "encopt"}) {
+		t.Fatalf("video accept children = %v", got)
 	}
 }
 

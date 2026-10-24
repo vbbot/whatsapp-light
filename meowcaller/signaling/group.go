@@ -160,8 +160,10 @@ func BuildActiveGroupPreaccept(
 	), nil
 }
 
-// BuildActiveGroupAccept builds the immediate acceptance of an active-call invite.
-func BuildActiveGroupAccept(callID string, callCreator types.JID, requestID string) (waBinary.Node, error) {
+// BuildActiveGroupAccept builds the immediate acceptance of an active-call invite. A video
+// call's accept carries <video> after <audio>, as WhatsApp Web sends it (wa-poc patch): the
+// server refuses an audio-only accept to a group video call with call ack error 431.
+func BuildActiveGroupAccept(callID string, callCreator types.JID, requestID string, video bool) (waBinary.Node, error) {
 	// Source of truth: https://github.com/purpshell/meowcaller/blob/676ebee3eca513b5348fab36cae5c560cc791238/datasheets/voip-group-invite-accept.md#L26-L45
 	if callID == "" || callCreator.IsEmpty() || requestID == "" {
 		return waBinary.Node{}, fmt.Errorf("signaling: build active group accept: incomplete identity")
@@ -171,6 +173,7 @@ func BuildActiveGroupAccept(callID string, callCreator types.JID, requestID stri
 		To:          types.NewJID(callID, "call"),
 		CallCreator: callCreator,
 		AudioRates:  []string{"16000"},
+		Video:       video,
 	})
 	accept.Attrs["id"] = requestID
 	return accept, nil
@@ -303,6 +306,10 @@ func ParseGroupInviteSnapshot(offer *waBinary.Node) (*GroupCallUpdate, bool, err
 		return nil, false, err
 	}
 	update.Joinable = attrs.OptionalString("joinable") == "1"
+	// A group-bound offer may carry the group on <offer> rather than <group_info> (wa-poc patch).
+	if update.GroupJID.IsEmpty() {
+		update.GroupJID = attrs.OptionalJIDOrEmpty("group-jid")
+	}
 	return update, true, nil
 }
 
