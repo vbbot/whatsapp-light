@@ -72,7 +72,33 @@ object WaCore : Listener {
         AppSettings.init(app)
         CallLog.init(app)
         createChannels()
+        watchNetwork()
         connect()
+    }
+
+    /** Released whenever a network becomes available: a failed first connect waits on it. */
+    private val networkBack = java.util.concurrent.Semaphore(0)
+
+    /**
+     * Reconnects as soon as a network comes back, rather than at the next keep-alive (up to 45 s
+     * later): a first connect that failed offline tries again, and a dropped connection redials.
+     */
+    private fun watchNetwork() {
+        val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
+        cm.registerDefaultNetworkCallback(
+            object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    Wake.hold(10_000)
+                    networkBack.release()
+                    // Only once connected before: until then, the first connect is retrying itself.
+                    val c = client ?: return
+                    if (connectedOnce && !c.isConnected) {
+                        WaState.log("network back: reconnecting")
+                        thread(name = "wa-network") { keepAlive() }
+                    }
+                }
+            },
+        )
     }
 
     /** Opens the session store and connects, showing a pairing code if this phone isn't linked. */
@@ -85,12 +111,29 @@ object WaCore : Listener {
                 c.setVideoRenderer(video)
                 c.setMediaDir(mediaDir().absolutePath)
                 client = c
+                Outbox.sender = { m -> sendQueued(c, m) }
+                Outbox.isConnected = { c.isConnected }
                 Media.photoDownloader = { m -> if (m.isSticker) c.downloadSticker(m.id, m.mediaRef) else c.downloadPhoto(m.id, m.mediaRef) }
                 Media.videoDownloader = { m -> c.downloadVideo(m.id, m.mediaRef) }
                 ChatIdentity.canonical = { jid -> c.canonicalChat(jid) }
                 WaState.linked.value = c.isPaired
                 WaState.status.value = if (c.isPaired) "connecting…" else "waiting for QR…"
-                c.connect()
+                // Offline, the first connect fails: that's not an error (the offline banner says
+                // so). Try again when a network comes back, or in a minute anyway.
+                while (true) {
+                    try {
+                        c.connect()
+                        break
+                    } catch (e: Exception) {
+                        val msg = e.message.orEmpty()
+                        if (!Outbox.looksLikeConnection(msg) || msg.contains("already connected")) throw e
+                        WaState.status.value = "offline"
+                        WaState.log("connect failed, waiting for the network: $msg")
+                        networkBack.drainPermits()
+                        networkBack.tryAcquire(60, java.util.concurrent.TimeUnit.SECONDS)
+                        if (client !== c) return@thread
+                    }
+                }
             } catch (e: Exception) {
                 // A refused session is handled by onLoggedOut, which links again.
                 if (e.message == "logged out") return@thread
@@ -146,6 +189,7 @@ object WaCore : Listener {
         client = null
         Media.photoDownloader = null
         Media.videoDownloader = null
+        Outbox.sender = null
         ChatIdentity.canonical = null
         runCatching { old?.close() }.onFailure { WaState.log("close failed: ${it.message}") }
         stopRing()
@@ -462,8 +506,9 @@ object WaCore : Listener {
         }
 
     /**
-     * Sends [text] to [chat], as a reply to [replyTo] if given. Shows it at once as pending;
-     * [onSent] runs once WhatsApp has it (a failure removes the row and shows the error).
+     * Sends a text, as a reply to [replyTo] if given. It's stored at once, queued, under the ID it
+     * will be sent with, and [onSent] runs then (it's safe from here on); [Outbox] sends it, now
+     * or once the connection is back.
      */
     fun sendText(
         chat: String,
@@ -473,89 +518,112 @@ object WaCore : Listener {
     ) = bg {
         val body = text.trim()
         if (body.isEmpty()) return@bg
-        val tmp = "pending-" + System.nanoTime()
-        val isGroup = chat.endsWith("@g.us")
-        val quote = replyTo?.let { Triple(it.id, quoteSenderOf(it), quoteSnippet(it)) }
-
-        fun msg(
-            id: String,
-            pending: Boolean,
-        ) = Msg(
-            id,
-            chat,
-            "me",
-            "",
-            body,
-            System.currentTimeMillis(),
-            true,
-            isGroup,
-            pending = pending,
-            status = if (pending) Status.NONE else Status.SENT,
-            quoteId = quote?.first.orEmpty(),
-            quoteSender = quote?.second.orEmpty(),
-            quoteText = quote?.third.orEmpty(),
+        MessageStore.add(
+            Msg(
+                vbh.ai.whatsapp.walib.Walib
+                    .newMessageID(),
+                chat,
+                "me",
+                "",
+                body,
+                System.currentTimeMillis(),
+                true,
+                chat.endsWith("@g.us"),
+                status = Status.QUEUED,
+                quoteId = replyTo?.id.orEmpty(),
+                quoteSender = replyTo?.let(::quoteSenderOf).orEmpty(),
+                quoteText = replyTo?.let(::quoteSnippet).orEmpty(),
+            ),
         )
-        MessageStore.add(msg(tmp, pending = true))
-        try {
-            val cl = client!!
-            val id = if (quote == null) cl.sendText(chat, body) else cl.sendReply(chat, body, quote.first, quote.second, quote.third)
-            MessageStore.remove(tmp)
-            MessageStore.add(msg(id, pending = false))
-            onSent()
-        } catch (e: Exception) {
-            MessageStore.remove(tmp)
-            throw e
-        }
+        onSent()
+        Outbox.flush()
     }
 
     /** A message's author as a reply records it: "me", or the sender's JID (the chat, in 1:1 chats). */
     private fun quoteSenderOf(m: Msg) = if (m.fromMe) "me" else m.sender.ifEmpty { m.chat }
 
     /**
-     * Sends a picked photo or video: shows it at once as a pending "[image]" / "[video]" row,
-     * then uploads and swaps in the real message (or removes the row and shows the error).
+     * Sends a picked photo or video. It's read straight away (the picker's permission doesn't
+     * last) and kept here: the photo as it will be sent, or the video and a sharp frame of it. Then
+     * it's queued like a text ([sendText]), and [Outbox] uploads it from those files.
      */
     fun sendMedia(
         chat: String,
         uri: android.net.Uri,
     ) = bg {
-        val tmp = "pending-" + System.nanoTime()
-        val isGroup = chat.endsWith("@g.us")
-        var local: File? = null
+        val id =
+            vbh.ai.whatsapp.walib.Walib
+                .newMessageID()
+        val local = File(mediaDir(), mediaFileName(id) + ".jpg")
         try {
             val media = MediaSend.prepare(app, uri)
+            local.writeBytes(media.preview)
+            if (media.kind == "video") Media.videoFile(id).writeBytes(media.data)
             val label = if (media.kind == "image") "[image]" else "[video]"
-            // Keep our own copy to show in the thread: the photo itself, or a sharp frame of the video.
-            local = File(mediaDir(), "$tmp.jpg").also { it.writeBytes(media.preview) }
-            // And of a video itself, so our own videos play without downloading.
-            if (media.kind == "video") Media.videoFile(tmp).writeBytes(media.data)
-            MessageStore.add(Msg(tmp, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, pending = true, media = local.path))
-            val id =
-                client!!.sendMedia(
+            MessageStore.add(
+                Msg(
+                    id,
                     chat,
+                    "me",
+                    "",
+                    label,
+                    System.currentTimeMillis(),
+                    true,
+                    chat.endsWith("@g.us"),
+                    status = Status.QUEUED,
+                    media = local.path,
+                ),
+            )
+        } catch (e: Exception) {
+            local.delete()
+            Media.videoFile(id).delete()
+            throw e
+        }
+        Outbox.flush()
+    }
+
+    /** Sends one queued message from what's stored ([Outbox.sender]). */
+    private fun sendQueued(
+        c: Client,
+        m: Msg,
+    ) {
+        // Sending may start with the phone asleep (the connection just came back): stay awake
+        // long enough for an upload.
+        Wake.hold(if (m.hasPicture || m.isVideo) 60_000 else 10_000)
+        when {
+            m.hasPicture || m.isVideo -> {
+                val media = MediaSend.fromLocal(if (m.isVideo) "video" else "image", File(m.media), Media.videoFile(m.id))
+                c.sendMedia(
+                    m.chat,
+                    m.id,
                     media.kind,
                     media.data,
                     media.mimetype,
-                    "",
+                    m.caption,
                     media.width.toLong(),
                     media.height.toLong(),
                     media.seconds.toLong(),
                     media.thumbnail,
                 )
-            val kept = File(mediaDir(), mediaFileName(id) + ".jpg").also { local.renameTo(it) }
-            if (media.kind == "video") Media.videoFile(tmp).renameTo(Media.videoFile(id))
-            MessageStore.remove(tmp)
-            MessageStore.add(
-                Msg(id, chat, "me", "", label, System.currentTimeMillis(), true, isGroup, status = Status.SENT, media = kept.path),
-            )
-            WaState.log("media sent: ${media.kind} ${media.data.size / 1024} KB ${media.width}x${media.height}")
-        } catch (e: Exception) {
-            MessageStore.remove(tmp)
-            local?.delete()
-            Media.videoFile(tmp).delete()
-            throw e
+                WaState.log("media sent: ${media.kind} ${media.data.size / 1024} KB ${media.width}x${media.height}")
+            }
+
+            m.isReply -> {
+                c.sendReply(m.chat, m.id, m.text, m.quoteId, m.quoteSender, m.quoteText)
+            }
+
+            else -> {
+                c.sendText(m.chat, m.id, m.text)
+            }
         }
     }
+
+    /** Deletes our message that hasn't been sent (queued, or refused), with its files. */
+    fun discard(m: Msg) =
+        bg {
+            if (MessageStore.get(m.id)?.pending != true) return@bg
+            removeMedia(m.id, MessageStore.deleteMessage(m.id))
+        }
 
     fun setMuted(m: Boolean) {
         if (::audio.isInitialized) audio.muted = m
@@ -598,6 +666,8 @@ object WaCore : Listener {
         WaState.linked.value = true
         WaState.connected.value = true
         WaState.status.value = "connected"
+        // What was written while offline goes now.
+        Outbox.flush()
         WaState.ownNumber.value = client?.ownNumber().orEmpty()
         // Just linked: the main phone now sends past chats, which takes a minute or two.
         if (pairing) {

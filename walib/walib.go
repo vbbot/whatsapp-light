@@ -356,8 +356,10 @@ func safeFileName(s string) string {
 	return string(b)
 }
 
-// SendText sends a text message to a phone number (+15551234567) or JID and returns the message ID.
-func (c *Client) SendText(chat, text string) (string, error) {
+// SendText sends a text message to a phone number (+15551234567) or JID, with message ID id (see
+// NewMessageID; "" lets WhatsApp's library pick one), and returns the message ID. Sending again
+// with the same ID after a lost reply can't deliver it twice.
+func (c *Client) SendText(chat, id, text string) (string, error) {
 	var jid types.JID
 	if strings.Contains(chat, "@") {
 		var err error
@@ -367,11 +369,27 @@ func (c *Client) SendText(chat, text string) (string, error) {
 	} else {
 		jid = types.NewJID(strings.TrimPrefix(chat, "+"), types.DefaultUserServer)
 	}
-	resp, err := c.wa.SendMessage(context.Background(), jid, &waE2E.Message{Conversation: proto.String(text)})
+	resp, err := c.wa.SendMessage(context.Background(), jid, &waE2E.Message{Conversation: proto.String(text)}, withID(id))
 	if err != nil {
 		return "", err
 	}
 	return resp.ID, nil
+}
+
+// NewMessageID is a fresh WhatsApp message ID, for the app to store a message under before it
+// is sent (see SendText). It works offline.
+func NewMessageID() string {
+	return string(whatsmeow.GenerateMessageID())
+}
+
+// withID is the send option that sends with message ID id, or none for "".
+func withID(id string) whatsmeow.SendRequestExtra {
+	return whatsmeow.SendRequestExtra{ID: types.MessageID(id)}
+}
+
+// IsConnected reports whether the connection to WhatsApp is up.
+func (c *Client) IsConnected() bool {
+	return c.wa.IsConnected() && c.wa.IsLoggedIn()
 }
 
 // RegisterWebPush registers a Web Push (RFC 8030) endpoint, as handed out by a
@@ -492,8 +510,8 @@ func (c *Client) CanonicalChat(jid string) string {
 
 // SendMedia uploads a photo or video and sends it to chat. kind is "image" or "video";
 // thumbnail is an optional small JPEG shown before the recipient downloads the file.
-// Returns the message ID.
-func (c *Client) SendMedia(chat, kind string, data []byte, mimetype, caption string, width, height, seconds int, thumbnail []byte) (string, error) {
+// Returns the message ID; id is the one to send it with, as for SendText.
+func (c *Client) SendMedia(chat, id, kind string, data []byte, mimetype, caption string, width, height, seconds int, thumbnail []byte) (string, error) {
 	jid, err := parseChat(chat)
 	if err != nil {
 		return "", err
@@ -538,7 +556,7 @@ func (c *Client) SendMedia(chat, kind string, data []byte, mimetype, caption str
 	default:
 		return "", fmt.Errorf("unsupported media kind %q", kind)
 	}
-	resp, err := c.wa.SendMessage(ctx, jid, msg)
+	resp, err := c.wa.SendMessage(ctx, jid, msg, withID(id))
 	if err != nil {
 		return "", err
 	}

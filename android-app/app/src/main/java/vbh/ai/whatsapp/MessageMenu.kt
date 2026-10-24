@@ -35,7 +35,8 @@ import com.thelightphone.sdk.ui.lightClickable
  * What a long press on a message offers, laid out like a chat's options: who said what, centred,
  * then full-width actions, and ✕ to close: the reaction rows first (LIKE and REACT, or EDIT and
  * REMOVE REACTION once we've reacted), then REPLY, EDIT (our own text messages, while WhatsApp
- * allows it) and DELETE.
+ * allows it) and DELETE. A message of ours not sent yet offers only RETRY (if WhatsApp refused
+ * it) and DELETE.
  */
 @Composable
 fun MessageMenuScreen(
@@ -76,7 +77,7 @@ fun MessageMenuScreen(
             verticalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // A message still sending has no ID WhatsApp knows yet.
+            // Not sent yet: there's nothing on WhatsApp to react or reply to.
             if (!m.pending && !m.isDeleted) {
                 val own = remember(m.id, changes) { MessageStore.ownReaction(m.id) }
                 if (own == null) {
@@ -98,7 +99,21 @@ fun MessageMenuScreen(
                 }
                 if (canEdit(m, System.currentTimeMillis())) ToggleButton("EDIT") { Nav.replaceTop(Screen.EditMessage(chat, m.id)) }
             }
-            if (!m.pending) ToggleButton("DELETE") { Nav.replaceTop(Screen.DeleteMessage(chat, m.id)) }
+            if (m.pending) {
+                // Only here: retrying sends it again, deleting drops it without telling anyone.
+                if (m.notSent) {
+                    ToggleButton("RETRY") {
+                        Outbox.retry(m)
+                        Nav.pop()
+                    }
+                }
+                ToggleButton("DELETE") {
+                    WaCore.discard(m)
+                    Nav.pop()
+                }
+            } else {
+                ToggleButton("DELETE") { Nav.replaceTop(Screen.DeleteMessage(chat, m.id)) }
+            }
         }
         Spacer(Modifier.weight(5.5f))
         LightBottomBar(

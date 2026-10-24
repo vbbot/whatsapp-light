@@ -2,6 +2,7 @@ package vbh.ai.whatsapp
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -86,6 +87,40 @@ object MediaSend {
             else -> {
                 error("Only photos and videos can be sent")
             }
+        }
+    }
+
+    /**
+     * A queued photo or video, read back from what [WaCore.sendMedia] kept: for a photo, [picture]
+     * holds the JPEG to send; for a video, [video] is the file and [picture] a frame of it.
+     */
+    fun fromLocal(
+        kind: String,
+        picture: File,
+        video: File,
+    ): PreparedMedia {
+        val bmp = BitmapFactory.decodeFile(picture.path)
+        val thumb = bmp?.let { thumbnail(it) } ?: ByteArray(0)
+        if (kind == "image") {
+            bmp ?: error("The photo to send is missing")
+            return PreparedMedia("image", picture.readBytes(), "image/jpeg", bmp.width, bmp.height, 0, thumb, ByteArray(0))
+        }
+        if (!video.exists()) error("The video to send is missing")
+        val mmr = MediaMetadataRetriever()
+        try {
+            mmr.setDataSource(video.path)
+            val rot = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            var w = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            var h = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            if (rot % 180 != 0) {
+                val t = w
+                w = h
+                h = t
+            }
+            val ms = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            return PreparedMedia("video", video.readBytes(), "video/mp4", w, h, ((ms + 500) / 1000).toInt(), thumb, ByteArray(0))
+        } finally {
+            mmr.release()
         }
     }
 

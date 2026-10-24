@@ -387,9 +387,10 @@ private fun MessageRow(
             if (showSender && !m.fromMe && m.senderName.isNotBlank()) {
                 LightText(text = m.senderName, variant = LightTextVariant.Detail)
             }
-            // The time only leads a group; an in-flight message always says so. Solid white, like the text.
+            // The time only leads a group; an unsent message always says where it is. Solid white, like the text.
+            val connected by WaState.connected.collectAsState()
             when {
-                m.pending -> TimeTag("SENDING")
+                m.pending -> TimeTag(pendingTag(m, connected))
                 showTime -> TimeTag(formatMessageTime(m.ts))
             }
             if (m.isReply) {
@@ -642,3 +643,14 @@ internal fun editedNote(
     m: Msg,
     tag: String?,
 ): String? = listOfNotNull(if (m.editedAt > 0 && !m.isDeleted) "edited" else null, tag).joinToString(" · ").ifEmpty { null }
+
+/** Where our unsent message is: going now, waiting for the connection, or refused. */
+internal fun pendingTag(
+    m: Msg,
+    connected: Boolean,
+): String =
+    when {
+        m.notSent -> "NOT SENT"
+        connected -> "SENDING"
+        else -> "QUEUED"
+    }
