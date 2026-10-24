@@ -58,6 +58,7 @@ object WaCore : Listener {
         started = true
         prepare(context)
         Wake.init(app)
+        Proximity.init(app)
         audio = AudioEngine(app)
         MessageStore.init(app)
         AppSettings.init(app)
