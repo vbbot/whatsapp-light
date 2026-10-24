@@ -206,6 +206,7 @@ class MainActivity : ComponentActivity() {
                 Screen.LogOut -> LogOutScreen()
                 is Screen.DeleteChat -> DeleteChatScreen(s.chat)
                 is Screen.MessageMenu -> MessageMenuScreen(s.chat, s.id)
+                is Screen.DeleteMessage -> DeleteMessageScreen(s.chat, s.id)
             }
         }
     }

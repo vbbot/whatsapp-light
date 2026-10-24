@@ -86,6 +86,9 @@ type Listener interface {
 	// at or before beforeMs (Unix ms) are gone, and so is everything up to the messages named in
 	// ids (comma-separated; the range's last messages). keepChat: only its messages were cleared.
 	OnChatDeleted(chat string, beforeMs int64, keepChat bool, ids string)
+	// OnMessageDeleted reports one message deleted for this account on another device
+	// ("Delete for me").
+	OnMessageDeleted(chat, id string)
 	// OnHistory delivers a batch of past messages, chat names and calls from the main phone
 	// (at link time, or answering RequestOlderMessages) as JSON; see historyBatch.
 	OnHistory(json string)
@@ -174,6 +177,8 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 			if len(e.Index) > 0 {
 				l.OnLog("app state: " + e.Index[0])
 			}
+		case *events.DeleteForMe:
+			c.handleDeleteForMe(e)
 		case *events.DeleteChat:
 			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, false, e.FromFullSync)
 		case *events.ClearChat:

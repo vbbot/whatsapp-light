@@ -33,6 +33,9 @@ data class Msg(
 ) {
     val isReply: Boolean get() = quoteId.isNotEmpty()
 
+    /** Deleted for everyone: kept as a "deleted" line in place of what it said. */
+    val isDeleted: Boolean get() = text == DELETED_TEXT
+
     /** A photo we only have the small embedded preview of. */
     val needsFullPhoto: Boolean get() = !isVideo && mediaRef.isNotEmpty() && (media.isEmpty() || isThumbnailFile(media))
 
@@ -47,6 +50,12 @@ data class Msg(
     /** Caption, without the "[image]" / "[video]" placeholder. */
     val caption: String get() = text.removePrefix("[image]").removePrefix("[video]").trim()
 }
+
+/** What a message deleted for everyone is stored as (its content is gone). */
+const val DELETED_TEXT = "[deleted]"
+
+/** How long after sending WhatsApp lets a message be deleted for everyone (about 2.5 days). */
+const val REVOKE_WINDOW_MS = 60 * 60 * 60_000L
 
 /** walib saves a message's embedded preview as "<id>_t.jpg" and the full photo as "<id>.jpg". */
 fun isThumbnailFile(path: String): Boolean = path.endsWith("_t.jpg")
@@ -213,6 +222,8 @@ object MessageStore {
         val old =
             d.rawQuery("SELECT * FROM messages WHERE id = ?", arrayOf(m.id)).readAll(ChatDb::msg).firstOrNull()
         // Never lose progress when a message is re-delivered (echo from another device, history).
+        // A message deleted for everyone stays deleted, whatever re-delivers it.
+        if (old?.isDeleted == true) return
         val merged =
             m.copy(
                 status = maxOf(m.status, old?.status ?: Status.NONE, earlyReceipts.remove(m.id) ?: Status.NONE),
@@ -231,6 +242,36 @@ object MessageStore {
                 quoteText = m.quoteText.ifEmpty { old?.quoteText.orEmpty() },
             )
         d.insertWithOnConflict("messages", null, ChatDb.values(merged), SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /** Deletes one message (Delete for me). Returns its media file, for the caller to remove, or null. */
+    @Synchronized
+    fun deleteMessage(id: String): String? {
+        val d = db ?: return null
+        val media = get(id)?.media
+        if (d.delete("messages", "id = ?", arrayOf(id)) > 0) changed()
+        return media?.ifEmpty { null }
+    }
+
+    /**
+     * Replaces one message's content with the "deleted" line (Delete for everyone), keeping its
+     * place in the thread. Returns its media file, for the caller to remove, or null.
+     */
+    @Synchronized
+    fun markDeleted(id: String): String? {
+        val d = db ?: return null
+        val media = get(id)?.media
+        val values =
+            android.content.ContentValues().apply {
+                put("text", DELETED_TEXT)
+                put("media", "")
+                put("media_ref", "")
+                put("quote_id", "")
+                put("quote_sender", "")
+                put("quote_text", "")
+            }
+        if (d.update("messages", values, "id = ?", arrayOf(id)) > 0) changed()
+        return media?.ifEmpty { null }
     }
 
     /** Drops a pending local echo (it was sent and re-added under its real ID, or it failed). */
