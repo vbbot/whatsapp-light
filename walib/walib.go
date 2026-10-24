@@ -77,6 +77,9 @@ type Listener interface {
 	// OnKeyframeRequest asks the encoder to make its next frame an IDR (peer lost sync or
 	// just accepted the call).
 	OnKeyframeRequest(callID string)
+	// OnParticipantVideoState reports a group call participant's camera: active (on), and
+	// orientation (rotate their frames by orientation x 90° clockwise to show them upright).
+	OnParticipantVideoState(callID, participant string, active bool, orientation int)
 	// OnRemoteOrientation reports the orientation carried in the peer's video packets:
 	// clockwise quarter turns to draw their frames upright. Authoritative for rendering.
 	OnRemoteOrientation(callID string, quarterTurns int)
@@ -112,6 +115,11 @@ type Listener interface {
 // Kotlin (MediaCodec decoder); called from Go goroutines.
 type VideoRenderer interface {
 	Frame(accessUnit []byte)
+	// ParticipantFrame is one participant's video in a group call: participant is their
+	// canonical JID, orientation the counter-clockwise quarter turns their frames carry, or -1
+	// when their packets don't say (see Listener.OnParticipantVideoState). A group call's video
+	// comes only this way, never through Frame.
+	ParticipantFrame(participant string, orientation int, accessUnit []byte)
 }
 
 // Speaker plays peer audio (16 kHz mono s16le). Implemented in Kotlin (AudioTrack).
@@ -131,8 +139,10 @@ type Client struct {
 	mic      *micSource
 	speaker  Speaker
 	renderer VideoRenderer
-	mediaDir string
-	cancel   context.CancelFunc
+	// groupVideo is the current call's ID while it is a group call: its video goes per participant.
+	groupVideo string
+	mediaDir   string
+	cancel     context.CancelFunc
 }
 
 // NewClient opens (or creates) the session database at dbPath. Nothing connects yet.
@@ -818,6 +828,7 @@ func (c *Client) onIncoming(call *meowcaller.Call) {
 	c.attach(call)
 	if _, ok := call.GroupState(); ok {
 		c.reportGroup(call)
+		c.receiveGroupVideo(call)
 	}
 	c.l.OnIncomingCall(call.ID(), c.canonical(call.Peer(), nil).String(), call.IsVideo())
 }
@@ -834,6 +845,12 @@ func (c *Client) attach(call *meowcaller.Call) {
 	call.ReceiveVideo(&videoSink{c: c, callID: id})
 	call.OnVideoState(func(v meowcaller.VideoState) {
 		c.l.OnVideoState(id, v.Active, v.Upgrade, v.Orientation, v.Raw)
+		c.mu.Lock()
+		group := c.groupVideo == id
+		c.mu.Unlock()
+		if group && !v.Sender.IsEmpty() {
+			c.l.OnParticipantVideoState(id, c.canonical(v.Sender, nil).String(), v.Active, v.Orientation)
+		}
 	})
 	call.OnVideoKeyframeRequest(func() { c.l.OnKeyframeRequest(id) })
 	call.OnPeerAccept(func() { c.l.OnKeyframeRequest(id) })
@@ -843,6 +860,9 @@ func (c *Client) attach(call *meowcaller.Call) {
 		if c.call != nil && c.call.ID() == id {
 			c.call = nil
 			c.mic = nil
+		}
+		if c.groupVideo == id {
+			c.groupVideo = ""
 		}
 		c.mu.Unlock()
 		mic.Close()
@@ -869,8 +889,9 @@ type videoSink struct {
 func (v *videoSink) WriteVideo(au []byte) error {
 	v.c.mu.Lock()
 	r := v.c.renderer
+	group := v.c.groupVideo == v.callID
 	v.c.mu.Unlock()
-	if r != nil {
+	if r != nil && !group {
 		r.Frame(au)
 	}
 	return nil

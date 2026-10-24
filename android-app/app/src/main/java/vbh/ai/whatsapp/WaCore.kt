@@ -1184,6 +1184,16 @@ object WaCore : Listener {
         if (active || upgrade) CallLog.markVideo(callID)
     }
 
+    override fun onParticipantVideoState(
+        callID: String,
+        participant: String,
+        active: Boolean,
+        orientation: Long,
+    ) {
+        WaState.log("video state (participant): active=$active orientation=$orientation")
+        video.participantState(normalizeJid(participant), active, orientation.toInt())
+    }
+
     override fun onKeyframeRequest(callID: String) {
         WaState.log("video out: peer asked for a keyframe")
         video.requestKeyframe()

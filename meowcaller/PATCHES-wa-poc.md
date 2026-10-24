@@ -34,3 +34,8 @@
    431. `GroupCallState` gained `GroupJID`, and `ParseGroupInviteSnapshot` also reads
    `group-jid` from `<offer>` when `<group_info>` lacks it. Candidate for upstreaming
    (upstream issue #34).
+
+6. **Who a video state is from.** `VideoState` gained `Sender`, the `from` of the `<call>` that
+   carried the `<video>` (`onVideoStanzaFrom` in `engine.go`). In a group call each participant
+   sends their own `<video state device_orientation>`, and their video packets carry no
+   orientation extension, so the app needs the sender to rotate each participant's video.

@@ -50,6 +50,17 @@ data class CallUi(
             }
 }
 
+/**
+ * A group call participant's video: the quarter turns clockwise that show their frames upright,
+ * whether their camera is on, and their frame size once known.
+ */
+data class VideoTile(
+    val quarterTurns: Int = 0,
+    val cameraOn: Boolean = true,
+    val width: Int = VideoEngine.WIDTH,
+    val height: Int = VideoEngine.HEIGHT,
+)
+
 /** Process-wide UI state, written by [WaCore], observed by Compose. */
 object WaState {
     val status = MutableStateFlow("Starting…")
@@ -69,6 +80,9 @@ object WaState {
 
     /** Decoded size of the peer's video, once known. */
     val remoteVideoSize = MutableStateFlow<Pair<Int, Int>?>(null)
+
+    /** In a group call, each participant whose video has arrived, by participant JID. */
+    val groupVideo = MutableStateFlow<Map<String, VideoTile>>(emptyMap())
     val logs = MutableStateFlow<List<String>>(emptyList())
 
     /** Persistent copy of the log (app-private), so a call can be diagnosed afterwards. */
