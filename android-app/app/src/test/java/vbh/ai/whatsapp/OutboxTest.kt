@@ -113,6 +113,13 @@ class OutboxTest {
     @Test fun connectionErrorsAreToldFromRefusals() {
         assertTrue(Outbox.looksLikeConnection("failed to get device list: failed to send usync query: websocket not connected"))
         assertTrue(Outbox.looksLikeConnection("context deadline exceeded"))
+        // Starting with no network.
+        assertTrue(
+            Outbox.looksLikeConnection(
+                "connect: failed to dial whatsapp web websocket: failed to WebSocket dial: failed to send handshake request: " +
+                    "Get \"https://web.whatsapp.com/ws/chat\": dial tcp: lookup web.whatsapp.com: no such host",
+            ),
+        )
         assertFalse(Outbox.looksLikeConnection("server returned error 479"))
     }
 

@@ -72,7 +72,33 @@ object WaCore : Listener {
         AppSettings.init(app)
         CallLog.init(app)
         createChannels()
+        watchNetwork()
         connect()
+    }
+
+    /** Released whenever a network becomes available: a failed first connect waits on it. */
+    private val networkBack = java.util.concurrent.Semaphore(0)
+
+    /**
+     * Reconnects as soon as a network comes back, rather than at the next keep-alive (up to 45 s
+     * later): a first connect that failed offline tries again, and a dropped connection redials.
+     */
+    private fun watchNetwork() {
+        val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
+        cm.registerDefaultNetworkCallback(
+            object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    Wake.hold(10_000)
+                    networkBack.release()
+                    // Only once connected before: until then, the first connect is retrying itself.
+                    val c = client ?: return
+                    if (connectedOnce && !c.isConnected) {
+                        WaState.log("network back: reconnecting")
+                        thread(name = "wa-network") { keepAlive() }
+                    }
+                }
+            },
+        )
     }
 
     /** Opens the session store and connects, showing a pairing code if this phone isn't linked. */
@@ -92,7 +118,22 @@ object WaCore : Listener {
                 ChatIdentity.canonical = { jid -> c.canonicalChat(jid) }
                 WaState.linked.value = c.isPaired
                 WaState.status.value = if (c.isPaired) "connecting…" else "waiting for QR…"
-                c.connect()
+                // Offline, the first connect fails: that's not an error (the offline banner says
+                // so). Try again when a network comes back, or in a minute anyway.
+                while (true) {
+                    try {
+                        c.connect()
+                        break
+                    } catch (e: Exception) {
+                        val msg = e.message.orEmpty()
+                        if (!Outbox.looksLikeConnection(msg) || msg.contains("already connected")) throw e
+                        WaState.status.value = "offline"
+                        WaState.log("connect failed, waiting for the network: $msg")
+                        networkBack.drainPermits()
+                        networkBack.tryAcquire(60, java.util.concurrent.TimeUnit.SECONDS)
+                        if (client !== c) return@thread
+                    }
+                }
             } catch (e: Exception) {
                 // A refused session is handled by onLoggedOut, which links again.
                 if (e.message == "logged out") return@thread

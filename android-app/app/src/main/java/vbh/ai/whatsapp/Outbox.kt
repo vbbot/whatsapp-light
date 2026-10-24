@@ -89,10 +89,21 @@ object Outbox {
         return false
     }
 
-    /** Errors from a connection that's down or dropping, as opposed to WhatsApp refusing the message. */
+    /** Errors from a network or connection that's down or dropping, as opposed to WhatsApp refusing the message. */
     fun looksLikeConnection(message: String?): Boolean {
         val m = message.orEmpty().lowercase()
-        return listOf("not connected", "websocket", "timed out", "timeout", "deadline exceeded", "connection", "eof", "broken pipe")
-            .any { it in m }
+        return listOf(
+            "not connected",
+            "websocket",
+            "timed out",
+            "timeout",
+            "deadline exceeded",
+            "connection",
+            "eof",
+            "broken pipe",
+            "no such host",
+            "dial tcp",
+            "network is unreachable",
+        ).any { it in m }
     }
 }
