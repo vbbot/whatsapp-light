@@ -36,6 +36,7 @@ class RepliesTest {
         assertEquals("see you at three", snippet("see you\\nat three".replace("\\n", "\n")))
         assertEquals("Photo", snippet("[image] "))
         assertEquals("this one", snippet("[image] this one"))
+        assertEquals("GIF", snippet("[gif] "))
         assertEquals("Video", snippet("[video]"))
         assertEquals("Voice message", snippet("[voice message]"))
         assertEquals("Sticker", snippet("[sticker]"))

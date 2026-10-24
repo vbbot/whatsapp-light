@@ -93,13 +93,15 @@ private fun fileSeconds(f: File): Int {
 /**
  * A message's video full screen; back returns to the chat. Plays the local copy, downloading it
  * first if needed ([Media.opened]); meanwhile it shows the preview and why it's waiting.
- * [previewPath] covers a video that's still sending (not stored yet).
+ * [previewPath] covers a video that's still sending (not stored yet). A [gif] plays muted on a
+ * loop, with no controls.
  */
 @Composable
 fun VideoViewerScreen(
     id: String,
     previewPath: String,
     backTo: String,
+    gif: Boolean = false,
 ) {
     val changes by MessageStore.changes.collectAsState()
     val msg = rememberQuery(id, changes) { MessageStore.get(id) }
@@ -111,7 +113,7 @@ fun VideoViewerScreen(
     val file = remember(id, states, msg) { Media.videoFile(id).takeIf { it.exists() } }
     ScreenColumn {
         LightTopBar(leftButton = backButton(backTo) { Nav.pop() })
-        if (file != null) VideoPlayer(file) else VideoWaiting(msg, previewPath, state, connected)
+        if (file != null) VideoPlayer(file, gif) else VideoWaiting(msg, previewPath, state, connected, if (gif) "GIF" else "video")
     }
 }
 
@@ -122,13 +124,14 @@ private fun androidx.compose.foundation.layout.ColumnScope.VideoWaiting(
     previewPath: String,
     state: Media.State?,
     connected: Boolean,
+    noun: String,
 ) {
     Banner(
         when {
-            state is Media.State.Failed -> "Couldn't load the video: ${state.reason}"
-            msg != null && msg.mediaRef.isEmpty() -> "This video can't be downloaded"
-            !connected -> "The video loads when connected"
-            else -> "Downloading video…"
+            state is Media.State.Failed -> "Couldn't load the $noun: ${state.reason}"
+            msg != null && msg.mediaRef.isEmpty() -> "This $noun can't be downloaded"
+            !connected -> "The $noun loads when connected"
+            else -> "Downloading $noun…"
         },
     )
     val preview = rememberBitmap(msg?.media?.ifEmpty { null } ?: previewPath, 2048)
@@ -144,10 +147,14 @@ private fun androidx.compose.foundation.layout.ColumnScope.VideoWaiting(
  * Plays [file] fitted to the screen, with play/pause and a seek bar under it. Sound goes to the
  * media stream, so the volume keys work. It pauses when the app goes to the background, when
  * another app (or a call) takes the audio, and when a call comes in. At the end it returns to the
- * start and stays paused.
+ * start and stays paused. A [gif] instead starts at once, muted and looping, with no controls,
+ * and takes no audio focus.
  */
 @Composable
-private fun androidx.compose.foundation.layout.ColumnScope.VideoPlayer(file: File) {
+private fun androidx.compose.foundation.layout.ColumnScope.VideoPlayer(
+    file: File,
+    gif: Boolean,
+) {
     val context = LocalContext.current
     val audio = remember { context.getSystemService(AudioManager::class.java) }
     val player = remember(file) { MediaPlayer() }
@@ -189,8 +196,15 @@ private fun androidx.compose.foundation.layout.ColumnScope.VideoPlayer(file: Fil
         player.setAudioAttributes(MEDIA_ATTRIBUTES)
         player.setOnPreparedListener {
             duration = it.duration
-            // Shows the first frame.
-            it.seekTo(0)
+            if (gif) {
+                it.setVolume(0f, 0f)
+                it.isLooping = true
+                it.start()
+                playing = true
+            } else {
+                // Shows the first frame.
+                it.seekTo(0)
+            }
         }
         player.setOnVideoSizeChangedListener { _, w, h -> if (w > 0 && h > 0) aspect = w.toFloat() / h }
         player.setOnCompletionListener {
@@ -229,7 +243,20 @@ private fun androidx.compose.foundation.layout.ColumnScope.VideoPlayer(file: Fil
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) pause() }
+        val observer =
+            LifecycleEventObserver { _, event ->
+                when {
+                    event == Lifecycle.Event.ON_PAUSE -> {
+                        pause()
+                    }
+
+                    // A GIF has nothing to press, so it carries on by itself.
+                    event == Lifecycle.Event.ON_RESUME && gif && !released && duration > 0 -> {
+                        player.start()
+                        playing = true
+                    }
+                }
+            }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
@@ -286,6 +313,10 @@ private fun androidx.compose.foundation.layout.ColumnScope.VideoPlayer(file: Fil
         }
     }
 
+    if (gif) {
+        Box(Modifier.navigationBarsPadding())
+        return
+    }
     Column(Modifier.fillMaxWidth().padding(horizontal = 2f.gridUnitsAsDp())) {
         LightTouchableProgressBar(
             colors = LightThemeTokens.colors,

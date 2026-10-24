@@ -157,4 +157,29 @@ class MediaTest {
         waitFor { MessageStore.get("here")?.media == "/m/here_p.jpg" }
         assertTrue(calls.isEmpty())
     }
+
+    @Test fun stickersDownloadWhenShownAndGifsWhenOpened() {
+        Media.photoDownloader = { m ->
+            calls += m.id
+            "/m/${m.id}.webp"
+        }
+        Media.videoDownloader = { m ->
+            calls += m.id
+            Media.videoFile(m.id).also { it.writeText("mp4") }.path
+        }
+        val sticker = Msg("st", "a@lid", "a@lid", "", "[sticker]", 1, false, false, mediaRef = "REF").also { MessageStore.add(it) }
+        assertTrue(sticker.isSticker && sticker.needsFullPhoto)
+        Media.shown(sticker)
+        waitFor { MessageStore.get("st")?.media == "/m/st.webp" }
+        assertFalse(MessageStore.get("st")!!.needsFullPhoto)
+
+        val gif = Msg("g", "a@lid", "a@lid", "", "[gif] ", 1, false, false, mediaRef = "REF").also { MessageStore.add(it) }
+        assertTrue(gif.isGif && gif.isVideo)
+        Media.shown(gif)
+        Thread.sleep(100)
+        assertEquals(listOf("st"), calls.toList())
+        Media.opened(gif)
+        waitFor { Media.videoFile("g").exists() }
+        assertEquals(listOf("g"), MessageStore.videoIds("a@lid").filter { it == "g" })
+    }
 }

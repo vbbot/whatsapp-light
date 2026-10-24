@@ -97,6 +97,7 @@ fun snippet(raw: String): String {
         listOf(
             "[image]" to "Photo",
             "[video]" to "Video",
+            "[gif]" to "GIF",
             "[voice message]" to "Voice message",
             "[document]" to "Document",
             "[sticker]" to "Sticker",

@@ -14,10 +14,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// mediaRef is the download information of a photo or video message (where it is stored and
-// its key), base64-encoded for the app to keep, or "" for anything else. The embedded thumbnail
-// and caption are left out: the app already has them. The app knows which kind it is from the
-// message text, and passes it to DownloadPhoto or DownloadVideo.
+// mediaRef is the download information of a photo, video (or GIF) or sticker message (where it
+// is stored and its key), base64-encoded for the app to keep, or "" for anything else. The
+// embedded thumbnail and caption are left out: the app already has them. The app knows which
+// kind it is from the message text, and passes it to DownloadPhoto, DownloadVideo or
+// DownloadSticker.
 func mediaRef(msg *waE2E.Message) string {
 	var m proto.Message
 	switch {
@@ -39,6 +40,16 @@ func mediaRef(msg *waE2E.Message) string {
 		vid.JPEGThumbnail = nil
 		vid.Caption = nil
 		m = vid
+	case msg.GetStickerMessage() != nil:
+		st := msg.GetStickerMessage()
+		if st.GetDirectPath() == "" && st.GetURL() == "" {
+			return ""
+		}
+		st = proto.Clone(st).(*waE2E.StickerMessage)
+		st.PngThumbnail = nil
+		st.FirstFrameSidecar = nil
+		st.ContextInfo = nil
+		m = st
 	default:
 		return ""
 	}
@@ -163,4 +174,38 @@ func expired(err error) bool {
 	return errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
+}
+
+// DownloadSticker fetches the sticker of message id (a WebP image, possibly animated) to
+// "<id>.webp" in the media directory and returns its path. ref is the message's mediaRef. Old
+// stickers may have expired from the server (ErrMediaExpired). Call from a background thread.
+func (c *Client) DownloadSticker(id, ref string) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(ref)
+	if err != nil {
+		return "", fmt.Errorf("bad media ref: %w", err)
+	}
+	st := &waE2E.StickerMessage{}
+	if err := proto.Unmarshal(raw, st); err != nil {
+		return "", fmt.Errorf("bad media ref: %w", err)
+	}
+	c.mu.Lock()
+	dir := c.mediaDir
+	c.mu.Unlock()
+	if dir == "" {
+		return "", errors.New("no media directory")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	data, err := c.wa.Download(ctx, st)
+	if expired(err) {
+		return "", ErrMediaExpired
+	}
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, safeFileName(id)+".webp")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }

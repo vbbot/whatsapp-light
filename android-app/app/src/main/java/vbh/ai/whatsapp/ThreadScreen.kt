@@ -432,13 +432,15 @@ private fun MessageBody(
             lighten = true,
             modifier = Modifier.padding(top = 1.dp),
         )
+    } else if (m.isSticker) {
+        Sticker(m)
     } else if (m.hasPicture || m.isVideo) {
-        val open = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle, video = m.isVideo)) }
+        val open = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle, video = m.isVideo, gif = m.isGif)) }
         // Media is the one place colour is allowed: shown as-is, tap for full screen.
         if (m.hasPicture) MediaThumb(m, onOpen = open)
         if (m.isVideo) {
-            Box(Modifier.lightClickable(onClickLabel = "Play video", onClick = open)) {
-                MessageText(videoLabel(rememberVideoSeconds(m)), m.fromMe, columnWidthPx)
+            Box(Modifier.lightClickable(onClickLabel = if (m.isGif) "Play GIF" else "Play video", onClick = open)) {
+                MessageText(if (m.isGif) "GIF" else videoLabel(rememberVideoSeconds(m)), m.fromMe, columnWidthPx)
             }
         }
         if (m.caption.isNotEmpty()) MessageText(m.caption, m.fromMe, columnWidthPx)
