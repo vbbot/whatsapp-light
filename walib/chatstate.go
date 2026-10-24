@@ -2,6 +2,7 @@ package walib
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -34,8 +35,12 @@ func (c *Client) handleArchive(e *events.Archive) {
 
 // handleDeleteChat reports a chat deleted (or cleared, keeping the chat) on another device:
 // messages up to the end of the action's range go.
-func (c *Client) handleDeleteChat(jid types.JID, r *waSyncAction.SyncActionMessageRange, at time.Time, keepChat bool) {
-	c.l.OnChatDeleted(c.canonical(jid, nil).String(), deletedBefore(r, at), keepChat)
+func (c *Client) handleDeleteChat(jid types.JID, r *waSyncAction.SyncActionMessageRange, at time.Time, keepChat bool, fullSync bool) {
+	chat := c.canonical(jid, nil).String()
+	before := deletedBefore(r, at)
+	c.l.OnLog(fmt.Sprintf("chat deleted elsewhere: %s (as %s) up to %d (range %d, %d msgs, at %d) keepChat=%v fullSync=%v",
+		jid, chat, before, r.GetLastMessageTimestamp(), len(r.GetMessages()), at.UnixMilli(), keepChat, fullSync))
+	c.l.OnChatDeleted(chat, before, keepChat)
 }
 
 // deletedBefore is the Unix ms up to which messages are deleted: the range's last message time

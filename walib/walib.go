@@ -160,10 +160,15 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 			c.handleMute(e)
 		case *events.Archive:
 			c.handleArchive(e)
+		case *events.AppState:
+			// Each incoming app-state change, by kind (e.g. "mute", "deleteChat"), for diagnosing sync.
+			if len(e.Index) > 0 {
+				l.OnLog("app state: " + e.Index[0])
+			}
 		case *events.DeleteChat:
-			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, false)
+			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, false, e.FromFullSync)
 		case *events.ClearChat:
-			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, true)
+			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, true, e.FromFullSync)
 		case *events.Pin:
 			c.handlePin(e)
 		}

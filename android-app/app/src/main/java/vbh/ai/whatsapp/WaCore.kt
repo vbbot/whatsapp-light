@@ -759,7 +759,9 @@ object WaCore : Listener {
         beforeMs: Long,
         keepChat: Boolean,
     ) {
+        val left = MessageStore.count(chat)
         val media = MessageStore.deleteChat(chat, beforeMs, keepChat)
+        WaState.log("deleted chat $chat up to $beforeMs: ${left - MessageStore.count(chat)} of $left messages")
         val dir = mediaDir().canonicalPath + File.separator
         media.map(::File).filter { it.canonicalPath.startsWith(dir) }.forEach { it.delete() }
         clearNotification(chat)
