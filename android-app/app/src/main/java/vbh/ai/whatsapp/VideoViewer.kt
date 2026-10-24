@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -353,3 +354,19 @@ internal fun RoundBadge(content: @Composable () -> Unit) {
 /** The play mark over a video's preview: tap to play it full screen. */
 @Composable
 internal fun PlayBadge() = RoundBadge { LightIcon(LightIcons.PLAY, size = 1.5f, contentDescription = "Play video") }
+
+/** A video's length on its preview: small white text on a black tag. */
+@Composable
+internal fun LengthTag(
+    text: String,
+    modifier: Modifier,
+) {
+    LightText(
+        text = text,
+        variant = LightTextVariant.Superfine,
+        modifier =
+            modifier
+                .background(LightThemeTokens.colors.background, RoundedCornerShape(2.dp))
+                .padding(horizontal = 4.dp, vertical = 1.dp),
+    )
+}

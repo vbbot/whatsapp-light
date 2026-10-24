@@ -436,15 +436,10 @@ private fun MessageBody(
         val open = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle, video = m.isVideo)) }
         // Media is the one place colour is allowed: shown as-is, tap for full screen.
         if (m.hasPicture) MediaThumb(m, onOpen = open)
-        if (m.isVideo) {
-            val seconds = rememberVideoSeconds(m)
+        // A preview carries its own marks (see MediaThumb); without one, a line says what it is.
+        if (m.isVideo && !m.hasPicture) {
             Box(Modifier.lightClickable(onClickLabel = "Play video", onClick = open)) {
-                // Under a preview (which has the play mark), just its length; with none, what it is too.
-                if (m.hasPicture) {
-                    videoLength(seconds).takeIf { it.isNotEmpty() }?.let { TimeTag(it) }
-                } else {
-                    MessageText(videoLabel(seconds), m.fromMe, columnWidthPx)
-                }
+                MessageText(videoLabel(rememberVideoSeconds(m)), m.fromMe, columnWidthPx)
             }
         }
         if (m.caption.isNotEmpty()) MessageText(m.caption, m.fromMe, columnWidthPx)
@@ -575,7 +570,13 @@ private fun MediaThumb(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        if (m.isVideo) PlayBadge()
+        if (m.isVideo) {
+            PlayBadge()
+            // Its length on the picture, so it can't be read as the message's time.
+            videoLength(rememberVideoSeconds(m)).takeIf { it.isNotEmpty() }?.let {
+                LengthTag(it, Modifier.align(Alignment.BottomStart).padding(0.5f.gridUnitsAsDp()))
+            }
+        }
     }
 }
 
