@@ -72,6 +72,9 @@ fun formatClock(ms: Long): String {
 /** A video's label in the thread: "Video · 0:42", or "Video" while its length isn't known. */
 fun videoLabel(seconds: Int): String = if (seconds > 0) "Video · ${formatClock(seconds * 1000L)}" else "Video"
 
+/** A video's length under its preview ("0:42"), or "" while it isn't known. */
+fun videoLength(seconds: Int): String = if (seconds > 0) formatClock(seconds * 1000L) else ""
+
 /** "+<digits>" for phone JIDs; "" for anything else (a LID is an internal ID, not a number). */
 fun displayNumber(jid: String): String {
     val user = jid.substringBefore('@').substringBefore(':')

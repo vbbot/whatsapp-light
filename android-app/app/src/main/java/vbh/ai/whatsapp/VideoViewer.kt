@@ -12,6 +12,8 @@ import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +23,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -36,11 +40,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.thelightphone.sdk.ui.LightBottomBar
+import com.thelightphone.sdk.ui.LightIcon
 import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextVariant
@@ -330,3 +336,20 @@ private fun Context.activity(): Activity? =
     generateSequence(this) {
         (it as? ContextWrapper)?.baseContext
     }.filterIsInstance<Activity>().firstOrNull()
+
+/** A round mark over a video's or GIF's preview: [content] in white, on black with a white ring. */
+@Composable
+internal fun RoundBadge(content: @Composable () -> Unit) {
+    val colors = LightThemeTokens.colors
+    Box(
+        Modifier
+            .size(3.5f.gridUnitsAsDp())
+            .background(colors.background, CircleShape)
+            .border(1.dp, colors.content, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+/** The play mark over a video's preview: tap to play it full screen. */
+@Composable
+internal fun PlayBadge() = RoundBadge { LightIcon(LightIcons.PLAY, size = 1.5f, contentDescription = "Play video") }

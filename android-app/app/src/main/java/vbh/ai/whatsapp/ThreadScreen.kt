@@ -437,8 +437,14 @@ private fun MessageBody(
         // Media is the one place colour is allowed: shown as-is, tap for full screen.
         if (m.hasPicture) MediaThumb(m, onOpen = open)
         if (m.isVideo) {
+            val seconds = rememberVideoSeconds(m)
             Box(Modifier.lightClickable(onClickLabel = "Play video", onClick = open)) {
-                MessageText(videoLabel(rememberVideoSeconds(m)), m.fromMe, columnWidthPx)
+                // Under a preview (which has the play mark), just its length; with none, what it is too.
+                if (m.hasPicture) {
+                    videoLength(seconds).takeIf { it.isNotEmpty() }?.let { TimeTag(it) }
+                } else {
+                    MessageText(videoLabel(seconds), m.fromMe, columnWidthPx)
+                }
             }
         }
         if (m.caption.isNotEmpty()) MessageText(m.caption, m.fromMe, columnWidthPx)
@@ -560,7 +566,7 @@ private fun MediaThumb(
         if (!m.isVideo) LightText(text = "[Photo]", variant = LightTextVariant.Paragraph, modifier = open.padding(top = 1.dp))
         return
     }
-    Box(Modifier.fillMaxWidth(0.7f).aspectRatio(aspect).then(open)) {
+    Box(Modifier.fillMaxWidth(0.7f).aspectRatio(aspect).then(open), contentAlignment = Alignment.Center) {
         bmp?.let {
             Image(
                 bitmap = it,
@@ -569,6 +575,7 @@ private fun MediaThumb(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        if (m.isVideo) PlayBadge()
     }
 }
 
