@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
-import android.os.PowerManager
 
 /**
  * Foreground service that keeps the process (and the WhatsApp connection) alive. It runs as a
@@ -14,8 +13,6 @@ import android.os.PowerManager
  * keep their audio with the screen off. Started again after the microphone is granted.
  */
 class WaService : Service() {
-    private var wake: PowerManager.WakeLock? = null
-
     override fun onStartCommand(
         intent: Intent?,
         flags: Int,
@@ -35,18 +32,10 @@ class WaService : Service() {
             WaState.log("foreground service without microphone: ${e.message}")
             startForeground(1, WaCore.serviceNotification(), messaging)
         }
-        if (wake == null) {
-            wake =
-                (getSystemService(POWER_SERVICE) as PowerManager)
-                    .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "waPoc:conn")
-                    .also { it.acquire() }
-        }
+        // No wake lock held here: the CPU sleeps between events (see Wake), and an alarm checks
+        // the connection every few minutes.
+        KeepAliveReceiver.schedule(this)
         return START_STICKY
-    }
-
-    override fun onDestroy() {
-        wake?.release()
-        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

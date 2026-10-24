@@ -57,6 +57,7 @@ object WaCore : Listener {
         if (started) return
         started = true
         prepare(context)
+        Wake.init(app)
         audio = AudioEngine(app)
         MessageStore.init(app)
         AppSettings.init(app)
@@ -88,6 +89,12 @@ object WaCore : Listener {
                 WaState.log("connect failed: ${e.message}")
             }
         }
+    }
+
+    /** From [KeepAliveReceiver]: ping, or reconnect if the socket died while the phone slept. */
+    fun keepAlive() {
+        val ok = runCatching { client?.keepAlive() }.getOrNull()
+        if (ok == false) WaState.log("keepalive: not answered, reconnecting")
     }
 
     private fun sessionDb() = File(app.filesDir, "wa.db")
@@ -126,6 +133,7 @@ object WaCore : Listener {
         runCatching { old?.close() }.onFailure { WaState.log("close failed: ${it.message}") }
         stopRing()
         WaState.call.value = null
+        Wake.inCall(false)
         app.getSystemService(NotificationManager::class.java).cancelAll()
         MessageStore.clearAll()
         CallLog.clearAll()
@@ -288,6 +296,7 @@ object WaCore : Listener {
                 incoming = false,
                 video = withVideo,
             )
+            Wake.inCall(true)
             WaState.call.value =
                 CallUi(id, target.trim(), incoming = false, phase = 1, video = withVideo, localVideo = withVideo, remoteVideo = withVideo)
             resolve(if (target.contains("@")) target.trim() else target.trim().removePrefix("+") + "@s.whatsapp.net")
@@ -531,6 +540,7 @@ object WaCore : Listener {
     }
 
     override fun onConnected(jid: String) {
+        Wake.hold(10_000)
         WaState.qr.value = null
         WaState.loggedOutNotice.value = null
         WaState.linked.value = true
@@ -559,6 +569,7 @@ object WaCore : Listener {
     @Volatile private var connectedOnce = false
 
     override fun onLoggedOut(reason: Long) {
+        Wake.hold(15_000)
         WaState.log("logged out by WhatsApp ($reason)")
         // Our own logout also ends the session; it relinks itself.
         if (loggingOut) return
@@ -566,6 +577,7 @@ object WaCore : Listener {
     }
 
     override fun onDisconnected() {
+        Wake.hold(30_000) // let whatsmeow reconnect
         WaState.connected.value = false
         WaState.status.value = "disconnected, reconnecting…"
     }
@@ -575,6 +587,7 @@ object WaCore : Listener {
         peer: String,
         video: Boolean,
     ) {
+        Wake.inCall(true)
         WaState.call.value = CallUi(callID, peer, incoming = true, phase = 2, video = video, remoteVideo = video)
         CallLog.start(callID, peer, incoming = true, video = video)
         resolve(peer)
@@ -618,6 +631,7 @@ object WaCore : Listener {
         callID: String,
         reason: String,
     ) {
+        Wake.inCall(false)
         CallLog.ended(callID)
         stopRing()
         audio.stop()
@@ -641,6 +655,7 @@ object WaCore : Listener {
         mediaPath: String,
         mediaRef: String,
     ) {
+        Wake.hold(5_000)
         // Our own messages sent from another device have already reached the server.
         MessageStore.add(
             Msg(
@@ -678,17 +693,26 @@ object WaCore : Listener {
     override fun onChatMuted(
         chat: String,
         mutedUntil: Long,
-    ) = MessageStore.setMutedUntil(chat, mutedUntil)
+    ) {
+        Wake.hold(2_000)
+        MessageStore.setMutedUntil(chat, mutedUntil)
+    }
 
     override fun onChatArchived(
         chat: String,
         archived: Boolean,
-    ) = MessageStore.setArchived(chat, archived)
+    ) {
+        Wake.hold(2_000)
+        MessageStore.setArchived(chat, archived)
+    }
 
     override fun onChatPinned(
         chat: String,
         pinnedAt: Long,
-    ) = MessageStore.setPinnedAt(chat, pinnedAt)
+    ) {
+        Wake.hold(2_000)
+        MessageStore.setPinnedAt(chat, pinnedAt)
+    }
 
     /** Pins or unpins [chat] here and on every linked device; refuses a pin past WhatsApp's limit. */
     fun setPinned(
@@ -760,7 +784,10 @@ object WaCore : Listener {
     override fun onMediaReady(
         id: String,
         path: String,
-    ) = MessageStore.setMedia(id, path)
+    ) {
+        Wake.hold(2_000)
+        MessageStore.setMedia(id, path)
+    }
 
     override fun onReceipt(
         chat: String,
@@ -768,6 +795,7 @@ object WaCore : Listener {
         kind: String,
         timestampMs: Long,
     ) {
+        Wake.hold(2_000)
         val set = ids.split(',').filter { it.isNotBlank() }.toSet()
         when (kind) {
             "delivered" -> MessageStore.applyReceipt(set, Status.DELIVERED)
@@ -815,6 +843,7 @@ object WaCore : Listener {
     }
 
     override fun onHistory(json: String) {
+        Wake.hold(15_000)
         try {
             val batch = History.receive(json)
             // A batch can bring the mappings that join a person's two addresses.
