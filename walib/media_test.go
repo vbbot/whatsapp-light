@@ -71,3 +71,43 @@ func TestMediaRefOfVideo(t *testing.T) {
 		t.Error("a video with nowhere to download from should have no ref")
 	}
 }
+
+func TestMediaRefOfSticker(t *testing.T) {
+	msg := &waE2E.Message{StickerMessage: &waE2E.StickerMessage{
+		DirectPath:   proto.String("/v/t62/st"),
+		MediaKey:     []byte{7},
+		IsAnimated:   proto.Bool(true),
+		PngThumbnail: make([]byte, 3000),
+	}}
+	raw, err := base64.StdEncoding.DecodeString(mediaRef(msg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &waE2E.StickerMessage{}
+	if err := proto.Unmarshal(raw, st); err != nil {
+		t.Fatal(err)
+	}
+	if st.GetDirectPath() != "/v/t62/st" || !st.GetIsAnimated() || len(st.GetPngThumbnail()) != 0 {
+		t.Errorf("sticker ref = %v", st)
+	}
+}
+
+func TestGIFsHaveTheirOwnPlaceholder(t *testing.T) {
+	gif := &waE2E.Message{VideoMessage: &waE2E.VideoMessage{GifPlayback: proto.Bool(true), Caption: proto.String("lol")}}
+	if got := messageText(gif); got != "[gif] lol" {
+		t.Errorf("gif text = %q", got)
+	}
+	vid := &waE2E.Message{VideoMessage: &waE2E.VideoMessage{Caption: proto.String("x")}}
+	if got := messageText(vid); got != "[video] x" {
+		t.Errorf("video text = %q", got)
+	}
+}
+
+func TestStickerExtTellsLottieZipsFromWebP(t *testing.T) {
+	if got := stickerExt([]byte("PK\x03\x04rest")); got != ".was" {
+		t.Errorf("zip = %q", got)
+	}
+	if got := stickerExt([]byte("RIFF....WEBP")); got != ".webp" {
+		t.Errorf("webp = %q", got)
+	}
+}

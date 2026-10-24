@@ -233,6 +233,7 @@ class MainActivity : ComponentActivity() {
                             s.id,
                             s.path,
                             s.backTo,
+                            s.gif,
                         )
                     } else {
                         MediaViewerScreen(s.id, s.path, s.backTo)

@@ -12,8 +12,8 @@ import kotlin.concurrent.thread
  * Downloads of full-size photos and of videos, for messages that only have their small embedded
  * preview (or none), which is all history sync brings. Two triggers share one queue:
  *
- * - [shown]: a photo, or a video of up to [SHOWN_VIDEO_MAX_BYTES], came on screen. Fetched once
- *   per session. Bigger videos wait to be opened.
+ * - [shown]: a photo, a GIF (it plays in the thread) or a video of up to [SHOWN_VIDEO_MAX_BYTES]
+ *   came on screen. Fetched once per session. Bigger videos wait to be opened.
  * - [opened]: a photo or video was opened. Goes ahead of everything shown, and tries again after
  *   an earlier failure.
  *
@@ -81,7 +81,7 @@ object Media {
     fun needsPreview(m: Msg): Boolean = m.isVideo && (m.media.isEmpty() || isThumbnailFile(m.media)) && videoFile(m.id).exists()
 
     private fun fetchedWhenShown(m: Msg): Boolean =
-        m.needsFullPhoto || needsPreview(m) || (needsVideo(m) && (videoBytes?.invoke(m) ?: 0L) in 1..SHOWN_VIDEO_MAX_BYTES)
+        m.needsFullPhoto || needsPreview(m) || (needsVideo(m) && (m.isGif || (videoBytes?.invoke(m) ?: 0L) in 1..SHOWN_VIDEO_MAX_BYTES))
 
     fun shown(m: Msg) {
         if (fetchedWhenShown(m) && attempted.add(m.id)) submit(m.id, opened = false)

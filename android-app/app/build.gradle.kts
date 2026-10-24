@@ -80,6 +80,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("com.google.zxing:core:3.5.3")
+    // WhatsApp's own animated stickers are Lottie animations (see Stickers.kt).
+    implementation("com.airbnb.android:lottie-compose:6.7.1")
 
     testImplementation("junit:junit:4.13.2")
     // Real SQLite and org.json for the storage tests.

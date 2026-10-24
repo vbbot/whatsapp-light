@@ -157,4 +157,28 @@ class MediaTest {
         waitFor { MessageStore.get("here")?.media == "/m/here_p.jpg" }
         assertTrue(calls.isEmpty())
     }
+
+    @Test fun stickersAndGifsDownloadWhenShown() {
+        Media.photoDownloader = { m ->
+            calls += m.id
+            "/m/${m.id}.webp"
+        }
+        Media.videoDownloader = { m ->
+            calls += m.id
+            Media.videoFile(m.id).also { it.writeText("mp4") }.path
+        }
+        val sticker = Msg("st", "a@lid", "a@lid", "", "[sticker]", 1, false, false, mediaRef = "REF").also { MessageStore.add(it) }
+        assertTrue(sticker.isSticker && sticker.needsFullPhoto)
+        Media.shown(sticker)
+        waitFor { MessageStore.get("st")?.media == "/m/st.webp" }
+        assertFalse(MessageStore.get("st")!!.needsFullPhoto)
+
+        val gif = Msg("g", "a@lid", "a@lid", "", "[gif] ", 1, false, false, mediaRef = "REF").also { MessageStore.add(it) }
+        assertTrue(gif.isGif && gif.isVideo)
+        // GIFs play in the thread, so they come as soon as they're shown, whatever their size.
+        Media.shown(gif)
+        waitFor { Media.videoFile("g").exists() }
+        assertEquals(listOf("st", "g"), calls.toList())
+        assertEquals(listOf("g"), MessageStore.videoIds("a@lid").filter { it == "g" })
+    }
 }

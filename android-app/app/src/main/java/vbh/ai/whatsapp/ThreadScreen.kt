@@ -432,14 +432,18 @@ private fun MessageBody(
             lighten = true,
             modifier = Modifier.padding(top = 1.dp),
         )
+    } else if (m.isSticker) {
+        Sticker(m)
     } else if (m.hasPicture || m.isVideo) {
-        val open = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle, video = m.isVideo)) }
+        val open = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle, video = m.isVideo, gif = m.isGif)) }
         // Media is the one place colour is allowed: shown as-is, tap for full screen.
+        // Videos without a preview still fetch theirs (and GIFs their file) on coming on screen.
+        if (m.isVideo && !m.hasPicture) LaunchedEffect(m.id) { Media.shown(m) }
         if (m.hasPicture) MediaThumb(m, onOpen = open)
         // A preview carries its own marks (see MediaThumb); without one, a line says what it is.
         if (m.isVideo && !m.hasPicture) {
-            Box(Modifier.lightClickable(onClickLabel = "Play video", onClick = open)) {
-                MessageText(videoLabel(rememberVideoSeconds(m)), m.fromMe, columnWidthPx)
+            Box(Modifier.lightClickable(onClickLabel = if (m.isGif) "Play GIF" else "Play video", onClick = open)) {
+                MessageText(if (m.isGif) "GIF" else videoLabel(rememberVideoSeconds(m)), m.fromMe, columnWidthPx)
             }
         }
         if (m.caption.isNotEmpty()) MessageText(m.caption, m.fromMe, columnWidthPx)
@@ -561,7 +565,10 @@ private fun MediaThumb(
         if (!m.isVideo) LightText(text = "[Photo]", variant = LightTextVariant.Paragraph, modifier = open.padding(top = 1.dp))
         return
     }
-    Box(Modifier.fillMaxWidth(0.7f).aspectRatio(aspect).then(open), contentAlignment = Alignment.Center) {
+    // A GIF that's here plays in its place, over its preview until the first frame shows.
+    val gif = remember(m.id, m.media) { Media.videoFile(m.id).takeIf { m.isGif && it.exists() } }
+    // A playing GIF handles its own taps (replay, or open).
+    Box(Modifier.fillMaxWidth(0.7f).aspectRatio(aspect).then(if (gif == null) open else Modifier), contentAlignment = Alignment.Center) {
         bmp?.let {
             Image(
                 bitmap = it,
@@ -570,7 +577,10 @@ private fun MediaThumb(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        if (m.isVideo) {
+        gif?.let { InlineGif(it, Modifier.fillMaxSize(), onOpen) }
+        // Still downloading: marked as a GIF all the same.
+        if (gif == null && m.isGif) GifBadge()
+        if (m.isVideo && !m.isGif) {
             PlayBadge()
             // Its length on the picture, so it can't be read as the message's time.
             videoLength(rememberVideoSeconds(m)).takeIf { it.isNotEmpty() }?.let {

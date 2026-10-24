@@ -36,7 +36,7 @@ data class Msg(
     /** Deleted for everyone: kept as a "deleted" line in place of what it said. */
     val isDeleted: Boolean get() = text == DELETED_TEXT
 
-    /** A photo we only have the small embedded preview of. */
+    /** A photo we only have the small embedded preview of, or a sticker not downloaded yet. */
     val needsFullPhoto: Boolean get() = !isVideo && mediaRef.isNotEmpty() && (media.isEmpty() || isThumbnailFile(media))
 
     /**
@@ -45,10 +45,22 @@ data class Msg(
      */
     val hasPicture: Boolean get() = media.isNotEmpty() || needsFullPhoto
 
-    val isVideo: Boolean get() = text.startsWith("[video]")
+    /** A video, or a GIF (which WhatsApp sends as a short video). */
+    val isVideo: Boolean get() = text.startsWith("[video]") || isGif
 
-    /** Caption, without the "[image]" / "[video]" placeholder. */
-    val caption: String get() = text.removePrefix("[image]").removePrefix("[video]").trim()
+    /** A GIF: played muted on a loop. */
+    val isGif: Boolean get() = text.startsWith("[gif]")
+
+    /** A sticker: drawn small, with no caption. */
+    val isSticker: Boolean get() = text.startsWith("[sticker]")
+
+    /** Caption, without the "[image]" / "[video]" / "[gif]" placeholder. */
+    val caption: String get() =
+        text
+            .removePrefix("[image]")
+            .removePrefix("[video]")
+            .removePrefix("[gif]")
+            .trim()
 }
 
 /** Someone's reaction to a message: [reactor] is a chat JID, or "me". */
@@ -518,14 +530,14 @@ object MessageStore {
         return media
     }
 
-    /** IDs of [chat]'s videos at or before [beforeMs], whose files go when the chat is deleted. */
+    /** IDs of [chat]'s videos and GIFs at or before [beforeMs], whose files go when the chat is deleted. */
     fun videoIds(
         chat: String,
         beforeMs: Long = Long.MAX_VALUE,
     ): List<String> =
         db
             ?.rawQuery(
-                "SELECT id FROM messages WHERE chat = ? AND ts <= ? AND text LIKE '[video]%'",
+                "SELECT id FROM messages WHERE chat = ? AND ts <= ? AND (text LIKE '[video]%' OR text LIKE '[gif]%')",
                 arrayOf(chat, beforeMs.toString()),
             )?.readAll { it.getString(0) }
             .orEmpty()
