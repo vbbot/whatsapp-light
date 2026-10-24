@@ -4,6 +4,9 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/polymorfa/hypermeow/proto/waSyncAction"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestHistoryMutedUntil(t *testing.T) {
@@ -28,5 +31,16 @@ func TestHistoryMutedUntil(t *testing.T) {
 func TestHistoryPinnedAt(t *testing.T) {
 	if historyPinnedAt(0) != 0 || historyPinnedAt(1_700_000_000) != 1_700_000_000_000 {
 		t.Error("pin time should be seconds converted to ms, 0 for not pinned")
+	}
+}
+
+func TestDeletedBefore(t *testing.T) {
+	at := time.UnixMilli(5_000_000)
+	r := &waSyncAction.SyncActionMessageRange{LastMessageTimestamp: proto.Int64(1_000)}
+	if got := deletedBefore(r, at); got != 1_000_999 {
+		t.Errorf("range end: got %d, want 1000999 (the whole last second)", got)
+	}
+	if got := deletedBefore(nil, at); got != 5_000_000 {
+		t.Errorf("no range: got %d, want the deletion time", got)
 	}
 }

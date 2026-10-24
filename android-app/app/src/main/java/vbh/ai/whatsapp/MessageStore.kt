@@ -328,6 +328,36 @@ object MessageStore {
         changed()
     }
 
+    /**
+     * Deletes [chat]'s messages at or before [beforeMs]. Unless [keepChat] (a clear), the chat
+     * itself goes too (name, archive, mute and pin) once no newer messages remain. Returns the
+     * deleted messages' media files, for the caller to remove.
+     */
+    @Synchronized
+    fun deleteChat(
+        chat: String,
+        beforeMs: Long = Long.MAX_VALUE,
+        keepChat: Boolean = false,
+    ): List<String> {
+        val d = db ?: return emptyList()
+        val args = arrayOf(chat, beforeMs.toString())
+        val media =
+            d
+                .rawQuery("SELECT media FROM messages WHERE chat = ? AND ts <= ? AND media != ''", args)
+                .readAll { it.getString(0) }
+        d.beginTransaction()
+        try {
+            d.delete("messages", "chat = ? AND ts <= ?", args)
+            if (!keepChat && newestTs(d, chat) == null) d.delete("chats", "chat = ?", arrayOf(chat))
+            d.setTransactionSuccessful()
+        } finally {
+            d.endTransaction()
+        }
+        pending.values.removeAll { it.chat == chat && it.ts <= beforeMs }
+        changed()
+        return media
+    }
+
     /** Archives or unarchives [chat] here (sync with WhatsApp is the caller's job). */
     @Synchronized
     fun setArchived(
