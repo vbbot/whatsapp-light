@@ -578,6 +578,8 @@ private fun MediaThumb(
             )
         }
         gif?.let { InlineGif(it, Modifier.fillMaxSize(), onOpen) }
+        // Still downloading: marked as a GIF all the same.
+        if (gif == null && m.isGif) GifBadge()
         if (m.isVideo && !m.isGif) {
             PlayBadge()
             // Its length on the picture, so it can't be read as the message's time.
