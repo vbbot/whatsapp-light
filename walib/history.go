@@ -24,6 +24,8 @@ type historyBatch struct {
 	Messages []historyMsg  `json:"messages"`
 	Chats    []historyChat `json:"chats"`
 	Calls    []historyCall `json:"calls"`
+	// Edits and deletes-for-everyone of messages, applied after the batch's messages.
+	Edits []historyEdit `json:"edits,omitempty"`
 }
 
 type historyMsg struct {
@@ -108,6 +110,8 @@ func (c *Client) handleHistory(e *events.HistorySync) {
 		for _, hm := range conv.GetMessages() {
 			if m, ok := c.historyMessage(chat, hm.GetMessage(), pushNames, mappings); ok {
 				b.Messages = append(b.Messages, m)
+			} else if e, ok := c.historyChange(chat, hm.GetMessage(), mappings); ok {
+				b.Edits = append(b.Edits, e)
 			}
 		}
 	}
@@ -134,10 +138,14 @@ func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushN
 		return historyMsg{}, false
 	}
 	m, err := c.wa.ParseWebMessage(chat, web)
-	if err != nil || m.Message == nil {
+	if err != nil {
 		return historyMsg{}, false
 	}
 	text := messageText(m.Message)
+	if web.GetMessageStubType() == waWeb.WebMessageInfo_REVOKE {
+		// Deleted for everyone: history keeps only a stub in its place.
+		text = deletedText
+	}
 	if text == "" {
 		return historyMsg{}, false
 	}
@@ -168,6 +176,19 @@ func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushN
 		QuotedText:   q.Text,
 		Reactions:    c.historyReactions(m.Info.Chat, web, mappings),
 	}, true
+}
+
+// historyChange is a history entry that edits or deletes an earlier message (an edit or revoke
+// protocol message).
+func (c *Client) historyChange(chat types.JID, web *waWeb.WebMessageInfo, mappings map[string]types.JID) (historyEdit, bool) {
+	if web == nil {
+		return historyEdit{}, false
+	}
+	m, err := c.wa.ParseWebMessage(chat, web)
+	if err != nil || m.Message == nil {
+		return historyEdit{}, false
+	}
+	return c.change(m, mappings)
 }
 
 // historyStatus maps a stored message's status to the app's (sent/delivered/seen).

@@ -54,6 +54,12 @@ type Listener interface {
 	// For a reply, quotedID, quotedSender and quotedText describe the message it answers (see
 	// quote); all "" otherwise.
 	OnMessage(chat, sender, senderName, id, text string, timestampMs int64, fromMe, isGroup bool, mediaPath, mediaRef, quotedID, quotedSender, quotedText string)
+	// OnMessageEdited reports that message id of chat now says text (edited at editedAtMs). fromMe
+	// and sender are who edited it: only its author can, so the app checks they match.
+	OnMessageEdited(chat, id, text string, editedAtMs int64, fromMe bool, sender string)
+	// OnMessageRevoked reports that message id of chat was deleted for everyone, by its author
+	// or (in groups) an admin; fromMe and sender are who deleted it.
+	OnMessageRevoked(chat, id string, fromMe bool, sender string)
 	// OnMediaReady reports that a received photo finished downloading to path (full size).
 	OnMediaReady(id, path string)
 	// OnReceipt reports message receipts. ids is comma-separated. kind is one of
@@ -239,7 +245,7 @@ func (c *Client) handleMessage(m *events.Message) {
 	if m.Message == nil || m.Info.Chat.Server == types.BroadcastServer {
 		return
 	}
-	if c.handleReaction(m) {
+	if c.handleReaction(m) || c.handleChange(m) {
 		return
 	}
 	text := messageText(m.Message)

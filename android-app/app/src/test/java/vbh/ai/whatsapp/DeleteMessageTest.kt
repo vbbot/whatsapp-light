@@ -64,4 +64,56 @@ class DeleteMessageTest {
         val reply = msg("r", 20).copy(quoteId = "o", quoteSender = "me", quoteText = "")
         assertEquals("↶ You: ${Replies.ORIGINAL_MISSING}", Replies.lineFor(reply).text)
     }
+
+    @Test fun anEditReplacesTheTextOnlyFromItsAuthor() {
+        MessageStore.add(msg("1", 10, fromMe = false))
+        // Someone else (or we) can't edit their message.
+        assertFalse(MessageStore.editMessage("a@lid", "1", "nope", 50, byMe = true, by = ""))
+        assertFalse(MessageStore.editMessage("b@lid", "1", "nope", 50, byMe = false, by = "a@lid"))
+        assertTrue(MessageStore.editMessage("a@lid", "1", "fixed", 50, byMe = false, by = "a@lid"))
+        assertEquals("fixed", MessageStore.get("1")!!.text)
+        assertEquals(50L, MessageStore.get("1")!!.editedAt)
+        // An older edit arriving late doesn't undo a newer one.
+        assertFalse(MessageStore.editMessage("a@lid", "1", "older", 40, byMe = false, by = "a@lid"))
+        assertEquals("fixed", MessageStore.get("1")!!.text)
+        assertEquals("edited", editedNote(MessageStore.get("1")!!, null))
+        assertEquals("edited · seen", editedNote(MessageStore.get("1")!!, "seen"))
+        assertNull(editedNote(msg("2", 10), null))
+    }
+
+    @Test fun theOriginalDeliveredAgainKeepsTheEdit() {
+        MessageStore.add(msg("1", 10))
+        MessageStore.editMessage("a@lid", "1", "fixed", 50, byMe = true, by = "")
+        MessageStore.addAll(listOf(msg("1", 10)))
+        assertEquals("fixed", MessageStore.get("1")!!.text)
+    }
+
+    @Test fun historyCanSayAMessageWasDeletedOrEdited() {
+        MessageStore.addAll(listOf(msg("1", 10).copy(media = "/m/1.jpg", text = "[image] x"), msg("2", 20)))
+        // A deleted stub in place of a message we have.
+        MessageStore.addAll(listOf(msg("1", 10).copy(text = DELETED_TEXT)))
+        assertTrue(MessageStore.get("1")!!.isDeleted)
+        assertEquals("", MessageStore.get("1")!!.media)
+        History.import(
+            HistoryBatch(
+                false,
+                "RECENT",
+                10,
+                emptyList(),
+                emptyMap(),
+                emptyList(),
+                edits = listOf(HistoryEdit("a@lid", "2", "fixed", 60, fromMe = true, sender = "")),
+            ),
+        )
+        assertEquals("fixed", MessageStore.get("2")!!.text)
+    }
+
+    @Test fun onlyRecentOwnTextMessagesCanBeEdited() {
+        val now = 1_000_000_000L
+        assertTrue(canEdit(msg("1", now - 60_000), now))
+        assertFalse(canEdit(msg("1", now - EDIT_WINDOW_MS - 1), now))
+        assertFalse(canEdit(msg("1", now, fromMe = false), now))
+        assertFalse(canEdit(msg("1", now).copy(text = "[image] x"), now))
+        assertFalse(canEdit(msg("1", now).copy(text = DELETED_TEXT), now))
+    }
 }

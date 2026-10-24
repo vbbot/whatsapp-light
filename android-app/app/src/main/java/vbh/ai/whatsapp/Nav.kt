@@ -24,6 +24,12 @@ sealed interface Screen {
         val chat: String,
     ) : Screen
 
+    /** Changing the text of our own message [id] in [chat]. */
+    data class EditMessage(
+        val chat: String,
+        val id: String,
+    ) : Screen
+
     data class Contacts(
         val purpose: Purpose,
     ) : Screen
