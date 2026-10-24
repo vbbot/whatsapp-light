@@ -45,6 +45,8 @@ object History {
     fun linked() {
         lastBatchAt = System.currentTimeMillis()
         syncing.value = 0
+        // The phone uploads the history while this one may be asleep; stay awake until it's in.
+        Wake.hold(FIRST_BATCH_WAIT_MS)
         // Ends the sync if the phone stops sending before the full history (e.g. it declined it).
         thread(name = "wa-history-watch", isDaemon = true) {
             while (true) {
@@ -63,6 +65,7 @@ object History {
         if (!batch.onDemand) {
             lastBatchAt = System.currentTimeMillis()
             val done = batch.type == "FULL" && batch.progress >= 100
+            if (!done) Wake.hold(NEXT_BATCH_WAIT_MS)
             syncing.update { n -> if (n == null || done) null else n + batch.messages.size }
         }
         return batch

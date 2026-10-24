@@ -579,6 +579,31 @@ func (c *Client) connected() {
 	c.l.OnConnected(c.wa.Store.ID.String())
 }
 
+// KeepAlive checks the connection from a wake-up alarm: whatsmeow's own keepalive timer doesn't
+// run while the CPU sleeps, so the server may have dropped the socket meanwhile. It pings when
+// connected and reconnects when not (or when the ping fails). Returns whether the ping succeeded.
+// Call from a background thread.
+func (c *Client) KeepAlive() bool {
+	if c.closed.Load() || c.wa.Store.ID == nil {
+		return false
+	}
+	if !c.wa.IsConnected() {
+		c.l.OnLog("keepalive: not connected, reconnecting")
+		if err := c.wa.Connect(); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+			c.l.OnLog("keepalive: reconnect failed: " + err.Error())
+		}
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if ok, _ := c.wa.DangerousInternals().SendKeepAlive(ctx); ok {
+		return true
+	}
+	c.l.OnLog("keepalive: ping failed, resetting the connection")
+	c.wa.ResetConnection()
+	return false
+}
+
 // Logout unlinks this device from the account (it disappears from Linked devices on the main
 // phone) and deletes the session. Needs a connection. Already logged out counts as done.
 func (c *Client) Logout() error {
