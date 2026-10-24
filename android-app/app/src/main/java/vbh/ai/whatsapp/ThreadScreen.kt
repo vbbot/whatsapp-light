@@ -107,6 +107,12 @@ fun ThreadScreen(chat: String) {
     var limit by rememberSaveable(chat) { mutableIntStateOf(THREAD_PAGE) }
     val page = rememberThreadPage(chat, limit)
     val msgs = page.messages
+    // Reactions for the loaded messages, as one line each ("❤️ 2 · 👍").
+    val changes by MessageStore.changes.collectAsState()
+    val reactions =
+        rememberQuery(msgs, changes, initial = emptyMap()) {
+            MessageStore.reactions(msgs.map { it.id }).mapValues { reactionLine(it.value) }
+        } ?: emptyMap()
     val newest = msgs.lastOrNull()
     val listState = rememberLazyListState()
     val tag = remember(msgs, isGroup) { if (isGroup) null else receiptTag(msgs) }
@@ -179,6 +185,7 @@ fun ThreadScreen(chat: String) {
                                     showTime = showTime,
                                     showSender = isGroup && showTime,
                                     tag = tag?.takeIf { it.first == m.id }?.second,
+                                    reactions = reactions[m.id],
                                     chatTitle = title,
                                     highlighted = highlighted == m.id,
                                     onQuote = { openQuote(m) },
@@ -350,6 +357,7 @@ private fun MessageRow(
     showTime: Boolean,
     showSender: Boolean,
     tag: String?,
+    reactions: String?,
     chatTitle: String,
     highlighted: Boolean,
     onQuote: () -> Unit,
@@ -403,6 +411,8 @@ private fun MessageRow(
             }
             // Receipt tag in place of ticks: one quiet word under the message it applies to.
             tag?.let { LightText(text = it, variant = LightTextVariant.Superfine, modifier = Modifier.padding(top = 1.dp)) }
+            // Reactions: one quiet line under the message, like the receipt word.
+            reactions?.let { LightText(text = it, variant = LightTextVariant.Superfine, modifier = Modifier.padding(top = 1.dp)) }
         }
     }
 }

@@ -89,6 +89,9 @@ type Listener interface {
 	// OnMessageDeleted reports one message deleted for this account on another device
 	// ("Delete for me").
 	OnMessageDeleted(chat, id string)
+	// OnReaction reports someone's reaction to the message targetID: reactor is a chat JID or
+	// "me"; emoji "" means they removed it. timestampMs orders changes from the same person.
+	OnReaction(chat, targetID, reactor, emoji string, timestampMs int64)
 	// OnHistory delivers a batch of past messages, chat names and calls from the main phone
 	// (at link time, or answering RequestOlderMessages) as JSON; see historyBatch.
 	OnHistory(json string)
@@ -233,6 +236,9 @@ func (c *Client) MarkRead(chat, sender, ids string) error {
 
 func (c *Client) handleMessage(m *events.Message) {
 	if m.Message == nil || m.Info.Chat.Server == types.BroadcastServer {
+		return
+	}
+	if c.handleReaction(m) {
 		return
 	}
 	text := messageText(m.Message)

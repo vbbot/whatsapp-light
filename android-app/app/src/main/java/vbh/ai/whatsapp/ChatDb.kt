@@ -63,8 +63,19 @@ class ChatDb(
         // pinned_at: 0 not pinned, else when it was pinned (Unix ms).
         db.execSQL(
             "CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '', " +
-                "archived INTEGER NOT NULL DEFAULT 0, muted_until INTEGER NOT NULL DEFAULT 0, pinned_at INTEGER NOT NULL DEFAULT 0)",
+                "archived INTEGER NOT NULL DEFAULT 0, muted_until INTEGER NOT NULL DEFAULT 0, pinned_at INTEGER NOT NULL DEFAULT 0, " +
+                "reacted_at INTEGER NOT NULL DEFAULT 0)",
         )
+        createReactions(db)
+    }
+
+    /** One reaction per person per message (WhatsApp replaces, never adds). */
+    private fun createReactions(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE reactions (message_id TEXT NOT NULL, chat TEXT NOT NULL, reactor TEXT NOT NULL, " +
+                "emoji TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (message_id, reactor))",
+        )
+        db.execSQL("CREATE INDEX reactions_chat ON reactions(chat)")
     }
 
     override fun onUpgrade(
@@ -87,11 +98,15 @@ class ChatDb(
             db.execSQL("ALTER TABLE messages ADD COLUMN quote_sender TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE messages ADD COLUMN quote_text TEXT NOT NULL DEFAULT ''")
         }
+        // 6: reactions.
+        if (oldVersion < 6) createReactions(db)
+        // 7: when someone last reacted to one of ours (it marks the chat unread).
+        if (oldVersion < 7) db.execSQL("ALTER TABLE chats ADD COLUMN reacted_at INTEGER NOT NULL DEFAULT 0")
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 5
+        const val VERSION = 7
 
         @Volatile private var shared: ChatDb? = null
 

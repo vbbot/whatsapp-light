@@ -44,6 +44,8 @@ type historyMsg struct {
 	QuotedID     string `json:"quotedId,omitempty"`
 	QuotedSender string `json:"quotedSender,omitempty"`
 	QuotedText   string `json:"quotedText,omitempty"`
+	// Reactions on this message, one per person.
+	Reactions []historyReaction `json:"reactions,omitempty"`
 }
 
 type historyChat struct {
@@ -163,6 +165,7 @@ func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushN
 		QuotedID:     q.ID,
 		QuotedSender: q.Sender,
 		QuotedText:   q.Text,
+		Reactions:    c.historyReactions(m.Info.Chat, web, mappings),
 	}, true
 }
 

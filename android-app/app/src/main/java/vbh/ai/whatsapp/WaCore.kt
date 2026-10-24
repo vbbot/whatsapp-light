@@ -628,6 +628,56 @@ object WaCore : Listener {
         if (!keepChat) Nav.dropChat(chat)
     }
 
+    override fun onReaction(
+        chat: String,
+        targetID: String,
+        reactor: String,
+        emoji: String,
+        timestampMs: Long,
+    ) {
+        Wake.hold(2_000)
+        MessageStore.setReaction(chat, targetID, reactor, emoji, timestampMs)
+        // As WhatsApp: only reactions to our own messages notify, and quiet chats stay quiet.
+        val target = MessageStore.get(targetID) ?: return
+        if (emoji.isEmpty() || reactor == "me" || !target.fromMe || MessageStore.openChat.value == chat) return
+        // Like a message: the chat shows unread until opened (muted ones too, just without a notification).
+        MessageStore.markReacted(chat, maxOf(timestampMs, target.ts + 1))
+        if (MessageStore.chatState(chat).quietAt(System.currentTimeMillis())) return
+        val who = MessageStore.title(reactor)
+        val n =
+            NotificationCompat
+                .Builder(app, CH_MESSAGES)
+                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentTitle(if (chat.endsWith("@g.us")) "${MessageStore.title(chat)} · $who" else who)
+                .setContentText("reacted $emoji to: ${quoteSnippet(target)}")
+                .setAutoCancel(true)
+                .setContentIntent(openApp())
+                .build()
+        app.getSystemService(NotificationManager::class.java).notify(chat.hashCode(), n)
+    }
+
+    /**
+     * Sets our reaction to [m] to [emoji] ("" removes it), here and for everyone. Shown at once;
+     * if sending fails it's undone and the reason shown.
+     */
+    fun react(
+        m: Msg,
+        emoji: String,
+    ) {
+        val before = MessageStore.ownReaction(m.id).orEmpty()
+        MessageStore.setReaction(m.chat, m.id, "me", emoji, System.currentTimeMillis())
+        thread(name = "wa-react") {
+            try {
+                val cl = client ?: error("not connected")
+                cl.sendReaction(m.chat, m.id, if (m.fromMe) "me" else m.sender, emoji)
+            } catch (e: Exception) {
+                WaState.log("reaction failed: ${e.message}")
+                MessageStore.setReaction(m.chat, m.id, "me", before, System.currentTimeMillis())
+                WaState.error.value = "Couldn't send the reaction (${e.message}). Check the connection and try again."
+            }
+        }
+    }
+
     override fun onMessageDeleted(
         chat: String,
         id: String,

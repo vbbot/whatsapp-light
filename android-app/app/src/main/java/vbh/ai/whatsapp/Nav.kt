@@ -50,6 +50,12 @@ sealed interface Screen {
         val id: String,
     ) : Screen
 
+    /** The emoji grid for reacting to one message. */
+    data class ReactionPicker(
+        val chat: String,
+        val id: String,
+    ) : Screen
+
     /** Confirms deleting one message: for me, or for everyone. */
     data class DeleteMessage(
         val chat: String,
@@ -116,6 +122,7 @@ object Nav {
                     is Screen.DeleteChat -> it.chat == chat
                     is Screen.MessageMenu -> it.chat == chat
                     is Screen.DeleteMessage -> it.chat == chat
+                    is Screen.ReactionPicker -> it.chat == chat
                     else -> false
                 }
             }

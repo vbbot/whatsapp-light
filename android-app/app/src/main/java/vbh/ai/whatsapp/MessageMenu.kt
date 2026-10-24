@@ -1,11 +1,16 @@
 package vbh.ai.whatsapp
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -15,16 +20,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.thelightphone.sdk.ui.LightBottomBar
 import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextVariant
 import com.thelightphone.sdk.ui.gridUnitsAsDp
+import com.thelightphone.sdk.ui.lightClickable
 
 /**
  * What a long press on a message offers, laid out like a chat's options: who said what, centred,
- * then full-width actions, and ✕ to close: REPLY and DELETE; reactions (#4) go above them.
+ * then full-width actions, and ✕ to close: the reaction rows first (LIKE and REACT, or EDIT and
+ * REMOVE REACTION once we've reacted), then REPLY and DELETE.
  */
 @Composable
 fun MessageMenuScreen(
@@ -67,6 +77,20 @@ fun MessageMenuScreen(
         ) {
             // A message still sending has no ID WhatsApp knows yet.
             if (!m.pending && !m.isDeleted) {
+                val own = remember(m.id, changes) { MessageStore.ownReaction(m.id) }
+                if (own == null) {
+                    ToggleButton("LIKE") {
+                        WaCore.react(m, LIKE)
+                        Nav.pop()
+                    }
+                    ToggleButton("REACT") { Nav.replaceTop(Screen.ReactionPicker(chat, m.id)) }
+                } else {
+                    ToggleButton("EDIT REACTION") { Nav.replaceTop(Screen.ReactionPicker(chat, m.id)) }
+                    ToggleButton("REMOVE REACTION") {
+                        WaCore.react(m, "")
+                        Nav.pop()
+                    }
+                }
                 ToggleButton("REPLY") {
                     Drafts.setReply(chat, m.id)
                     Nav.replaceTop(Screen.Composer(chat))
@@ -157,3 +181,67 @@ fun canDeleteForEveryone(
     m: Msg,
     now: Long,
 ): Boolean = m.fromMe && !m.pending && !m.isDeleted && now - m.ts < REVOKE_WINDOW_MS
+
+/** The quick reaction. */
+private const val LIKE = "❤️"
+
+/**
+ * The reaction choices, in the LP3 emoji panel's layout (3 rows of 8): faces, hands, symbols.
+ * Choosing our current reaction again removes it.
+ */
+private val REACTION_ROWS =
+    listOf(
+        listOf("😅", "😊", "🙄", "😍", "😜", "😂", "😭", "😎"),
+        listOf("👏", "👍", "👎", "🤞", "✌️", "👌", "👋", "🙏"),
+        listOf("✨", "🔥", "❤️", "💔", "🏆", "🎯", "👑", "👀"),
+    )
+
+/** Picking a reaction for one message: the emoji grid, our current one underlined; ✕ to cancel. */
+@Composable
+fun ReactionPickerScreen(
+    chat: String,
+    id: String,
+) {
+    val m = remember(id) { MessageStore.get(id) }
+    if (m == null || m.chat != chat) {
+        StatusText("This message is no longer here.")
+        return
+    }
+    val own = remember(id) { MessageStore.ownReaction(id) }
+    ScreenColumn {
+        Spacer(Modifier.weight(1f))
+        Column(Modifier.fillMaxWidth().padding(horizontal = 1f.gridUnitsAsDp())) {
+            REACTION_ROWS.forEach { row ->
+                Row(Modifier.fillMaxWidth().height(EMOJI_CELL)) {
+                    row.forEach { emoji ->
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .lightClickable(onClickLabel = if (emoji == own) "Remove $emoji" else "React $emoji") {
+                                    WaCore.react(m, if (emoji == own) "" else emoji)
+                                    Nav.pop()
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = emoji,
+                                fontSize = EMOJI_SIZE,
+                                textDecoration = if (emoji == own) TextDecoration.Underline else null,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        LightBottomBar(
+            modifier = Modifier.navigationBarsPadding(),
+            items = listOf(null, icon(LightIcons.CLOSE, "Cancel reacting") { Nav.pop() }, null),
+        )
+    }
+}
+
+// The LP3 emoji panel's geometry (as Chats measures it).
+private val EMOJI_CELL = 46.dp
+private val EMOJI_SIZE = 24.sp
