@@ -7,7 +7,9 @@ import org.json.JSONArray
 import java.io.File
 
 /**
- * One call, as seen by this device. [peer] is the other party's chat JID (no device suffix).
+ * One call, as seen by this device. [peer] is the other party's chat JID (no device suffix); for
+ * a group call, the group's, or the caller's when it was a call between chosen people. [members]
+ * lists a group call's other participants (everyone who was in it or invited), caller first.
  * Outcome is filled in when the call ends.
  */
 data class CallRecord(
@@ -19,13 +21,23 @@ data class CallRecord(
     val endedAt: Long = 0L,
     val outcome: Outcome = Outcome.ONGOING,
     val video: Boolean = false,
+    val members: List<String> = emptyList(),
 ) {
+    val isGroup: Boolean get() = members.isNotEmpty() || peer.endsWith("@g.us")
+
     enum class Outcome { ONGOING, ANSWERED, MISSED, DECLINED, NO_ANSWER }
 
     /** Lowercase subtitle for the call log row: what happened, and for how long. */
     val summary: String
         get() =
-            (if (video) "video · " else "") +
+            (
+                when {
+                    isGroup && video -> "group video · "
+                    isGroup -> "group · "
+                    video -> "video · "
+                    else -> ""
+                }
+            ) +
                 when (outcome) {
                     Outcome.ANSWERED -> (if (incoming) "incoming" else "outgoing") + " · " + formatDuration(endedAt - answeredAt)
                     Outcome.MISSED -> "missed"
@@ -105,9 +117,10 @@ object CallLog {
         peer: String,
         incoming: Boolean,
         video: Boolean = false,
+        members: List<String> = emptyList(),
     ) {
         val d = db ?: return
-        val rec = CallRecord(id, normalizeJid(peer), incoming, System.currentTimeMillis(), video = video)
+        val rec = CallRecord(id, normalizeJid(peer), incoming, System.currentTimeMillis(), video = video, members = members)
         d.insertWithOnConflict("calls", null, ChatDb.values(rec), SQLiteDatabase.CONFLICT_IGNORE)
         reload()
     }
@@ -123,6 +136,13 @@ object CallLog {
 
     @Synchronized
     fun answered(id: String) = update(id) { if (it.answeredAt == 0L) it.copy(answeredAt = System.currentTimeMillis()) else it }
+
+    /** Adds a group call's newly reported participants; those already listed keep their place. */
+    @Synchronized
+    fun addMembers(
+        id: String,
+        members: List<String>,
+    ) = update(id) { r -> (r.members + members).distinct().let { if (it == r.members) r else r.copy(members = it) } }
 
     @Synchronized
     fun markVideo(id: String) = update(id) { if (it.video) it else it.copy(video = true) }

@@ -64,3 +64,7 @@ fun videoTiles(
     val order = members.withIndex().associate { (i, m) -> m to i }
     return shown.sortedWith(compareBy<String> { order[it] ?: Int.MAX_VALUE }.thenBy { it })
 }
+
+/** A group call's name in the call log: its group's, or its participants' ([groupCallTitle]). */
+fun callLogTitle(c: CallRecord): String =
+    groupCallTitle(c.peer.takeIf { it.endsWith("@g.us") }?.let(MessageStore::title), c.members.map(MessageStore::title))

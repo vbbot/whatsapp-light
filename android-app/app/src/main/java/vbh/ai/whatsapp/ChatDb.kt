@@ -53,7 +53,8 @@ class ChatDb(
                 answered_at INTEGER NOT NULL DEFAULT 0,
                 ended_at INTEGER NOT NULL DEFAULT 0,
                 outcome TEXT NOT NULL,
-                video INTEGER NOT NULL DEFAULT 0
+                video INTEGER NOT NULL DEFAULT 0,
+                members TEXT NOT NULL DEFAULT ''
             )
             """.trimIndent(),
         )
@@ -105,11 +106,13 @@ class ChatDb(
         if (oldVersion < 7) db.execSQL("ALTER TABLE chats ADD COLUMN reacted_at INTEGER NOT NULL DEFAULT 0")
         // 8: when a message was last edited.
         if (oldVersion < 8) db.execSQL("ALTER TABLE messages ADD COLUMN edited_at INTEGER NOT NULL DEFAULT 0")
+        // 9: a group call's other participants.
+        if (oldVersion < 9) db.execSQL("ALTER TABLE calls ADD COLUMN members TEXT NOT NULL DEFAULT ''")
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 8
+        const val VERSION = 9
 
         @Volatile private var shared: ChatDb? = null
 
@@ -167,6 +170,7 @@ class ChatDb(
                 put("ended_at", r.endedAt)
                 put("outcome", r.outcome.name)
                 put("video", if (r.video) 1 else 0)
+                put("members", r.members.joinToString(","))
             }
 
         fun call(c: Cursor) =
@@ -181,6 +185,7 @@ class ChatDb(
                     runCatching { CallRecord.Outcome.valueOf(c.getString(c.getColumnIndexOrThrow("outcome"))) }
                         .getOrDefault(CallRecord.Outcome.MISSED),
                 video = c.getInt(c.getColumnIndexOrThrow("video")) == 1,
+                members = c.getString(c.getColumnIndexOrThrow("members")).jidList(),
             )
     }
 }

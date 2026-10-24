@@ -251,10 +251,13 @@ private fun CallList() {
     val changes by MessageStore.changes.collectAsState()
     val names by MessageStore.names.collectAsState()
     val phones by MessageStore.phones.collectAsState()
-    LaunchedEffect(calls.size) { WaCore.resolveAll(calls.map { it.peer }) }
+    LaunchedEffect(
+        calls.size,
+    ) { WaCore.resolveAll((calls.map { it.peer } + calls.flatMap { it.members }).filterNot { it.endsWith("@g.us") }) }
     val titles =
         rememberQuery(calls, changes, names, phones) {
-            calls.map { it.peer }.distinct().associateWith { MessageStore.title(it) }
+            calls.map { it.peer }.distinct().associateWith { MessageStore.title(it) } +
+                calls.filter { it.isGroup }.associate { it.id to callLogTitle(it) }
         }.orEmpty()
     val listState = rememberLazyListState()
     if (calls.isEmpty()) {
@@ -263,15 +266,16 @@ private fun CallList() {
     }
     LightLazyScrollView(scrollBarPosition = LightScrollBarPosition.Inside, uniformItemHeightGridUnits = 6f, listState = listState) {
         items(calls, key = { it.id }) { c ->
-            val name = titles[c.peer] ?: MessageStore.fallbackTitle(c.peer, phones[c.peer])
+            val name = (if (c.isGroup) titles[c.id] else titles[c.peer]) ?: MessageStore.fallbackTitle(c.peer, phones[c.peer])
             CallRow(
                 name = name,
                 summary = c.summary,
                 time = formatRowTime(c.startedAt),
                 // A missed call is the one thing worth flagging, with the same asterisk as unread chats.
                 flagged = c.outcome == CallRecord.Outcome.MISSED,
-                onClick = { WaCore.call(c.peer) },
-                label = "Call $name back",
+                // Group calls can't be made from here yet: open the group's (or the caller's) chat.
+                onClick = { if (c.isGroup) Nav.push(Screen.Thread(c.peer)) else WaCore.call(c.peer) },
+                label = if (c.isGroup) "Open chat with $name" else "Call $name back",
             )
         }
     }

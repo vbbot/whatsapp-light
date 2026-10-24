@@ -831,7 +831,8 @@ object WaCore : Listener {
             CallUi(callID, peer, incoming = true, phase = 2, video = video, remoteVideo = video).let { c ->
                 groupCalls[callID]?.let { c.withGroup(it) } ?: c
             }
-        CallLog.start(callID, peer, incoming = true, video = video)
+        val group = groupCalls[callID]
+        CallLog.start(callID, group?.group?.ifEmpty { null } ?: peer, incoming = true, video = video, members = group?.members.orEmpty())
         resolve(peer)
         ringtone = RingtoneManager.getRingtone(app, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.also { it.play() }
         val n =
@@ -871,6 +872,7 @@ object WaCore : Listener {
         val info = GroupCallInfo(normalizeJid(group), members.jidList(), joined.jidList())
         groupCalls[callID] = info
         resolveAll(info.members)
+        CallLog.addMembers(callID, info.members)
         WaState.call.update { c -> if (c?.id == callID) c.withGroup(info) else c }
     }
 
