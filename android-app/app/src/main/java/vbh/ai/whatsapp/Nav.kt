@@ -71,14 +71,15 @@ sealed interface Screen {
     data object Archived : Screen
 
     /**
-     * A message's photo full screen, or its video in the player when [video]; [path] is the picture
-     * it showed when opened (a video's preview).
+     * A message's photo full screen, or its video in the player when [video] (muted and looping
+     * when [gif]); [path] is the picture it showed when opened (a video's preview).
      */
     data class MediaViewer(
         val id: String,
         val path: String,
         val backTo: String,
         val video: Boolean = false,
+        val gif: Boolean = false,
     ) : Screen
 
     /** Choose voice or video before calling [chat]. */

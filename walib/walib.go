@@ -266,6 +266,9 @@ func messageText(msg *waE2E.Message) string {
 		switch {
 		case msg.GetImageMessage() != nil:
 			text = "[image] " + msg.GetImageMessage().GetCaption()
+		case msg.GetVideoMessage().GetGifPlayback():
+			// WhatsApp sends GIFs as short MP4 videos flagged for looping, muted playback.
+			text = "[gif] " + msg.GetVideoMessage().GetCaption()
 		case msg.GetVideoMessage() != nil:
 			text = "[video] " + msg.GetVideoMessage().GetCaption()
 		case msg.GetAudioMessage() != nil:

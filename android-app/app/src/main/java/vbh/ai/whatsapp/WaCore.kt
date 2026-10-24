@@ -85,7 +85,7 @@ object WaCore : Listener {
                 c.setVideoRenderer(video)
                 c.setMediaDir(mediaDir().absolutePath)
                 client = c
-                Media.photoDownloader = { m -> c.downloadPhoto(m.id, m.mediaRef) }
+                Media.photoDownloader = { m -> if (m.isSticker) c.downloadSticker(m.id, m.mediaRef) else c.downloadPhoto(m.id, m.mediaRef) }
                 Media.videoDownloader = { m -> c.downloadVideo(m.id, m.mediaRef) }
                 ChatIdentity.canonical = { jid -> c.canonicalChat(jid) }
                 WaState.linked.value = c.isPaired
