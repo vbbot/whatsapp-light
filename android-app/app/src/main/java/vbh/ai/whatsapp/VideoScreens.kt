@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightBottomBar
@@ -57,26 +59,10 @@ fun VideoCallScreen(
     Column(Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
         LightTopBar(center = LightTopBarCenter.TwoLineDetail(title, status))
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().background(Color.Black)) {
-            // The remote view (and its decoder) stays alive for the whole call, so their video
-            // resumes instantly after they turn their camera off and on again.
-            val (w, h) = size ?: (VideoEngine.WIDTH to VideoEngine.HEIGHT)
-            RotatedVideo(
-                // Their packets carry a counter-clockwise turn (WhatsApp's convention, tested);
-                // we draw with clockwise turns.
-                frameW = w,
-                frameH = h,
-                quarterTurns = (4 - call.remoteOrientation) % 4,
-                mirror = false,
-                boxW = maxWidth,
-                boxH = maxHeight,
-                modifier = Modifier.align(Alignment.Center),
-                onSurface = { WaCore.video.setRemoteSurface(it) },
-            )
-            if (!call.remoteVideo) {
-                // Covers the last frame; draws only, takes no touches.
-                Box(Modifier.fillMaxSize().background(Color.Black)) {
-                    StatusText(if (call.phase < 4) call.phaseLabel else "camera off")
-                }
+            if (call.groupCall) {
+                GroupVideoGrid(call, maxWidth, maxHeight)
+            } else {
+                PeerVideo(call, size, maxWidth, maxHeight)
             }
             if (call.localVideo) {
                 // Our preview: a small portrait inset. Camera2 already turns preview frames upright
@@ -130,6 +116,93 @@ fun VideoCallScreen(
                     bar(LightIcons.DENY, "End call") { WaCore.hangup() },
                 ).filterNotNull(),
         )
+    }
+}
+
+/** The peer's video in a 1:1 call, or "camera off" over it. */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.PeerVideo(
+    call: CallUi,
+    size: Pair<Int, Int>?,
+    boxW: Dp,
+    boxH: Dp,
+) {
+    // The remote view (and its decoder) stays alive for the whole call, so their video
+    // resumes instantly after they turn their camera off and on again.
+    val (w, h) = size ?: (VideoEngine.WIDTH to VideoEngine.HEIGHT)
+    RotatedVideo(
+        // Their packets carry a counter-clockwise turn (WhatsApp's convention, tested);
+        // we draw with clockwise turns.
+        frameW = w,
+        frameH = h,
+        quarterTurns = (4 - call.remoteOrientation) % 4,
+        mirror = false,
+        boxW = boxW,
+        boxH = boxH,
+        modifier = Modifier.align(Alignment.Center),
+        onSurface = { WaCore.video.setRemoteSurface(it) },
+    )
+    if (!call.remoteVideo) {
+        // Covers the last frame; draws only, takes no touches.
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            StatusText(if (call.phase < 4) call.phaseLabel else "camera off")
+        }
+    }
+}
+
+/**
+ * A group call's video: everyone whose camera is on, up to four, in a grid (one fills the
+ * screen, two are stacked, three or four share a 2×2 grid), each with their name.
+ */
+@Composable
+private fun GroupVideoGrid(
+    call: CallUi,
+    boxW: Dp,
+    boxH: Dp,
+) {
+    val tiles by WaState.groupVideo.collectAsState()
+    // Cameras turn off without a signal here; their frames just stop, so look again each second.
+    val now = remember { mutableLongStateOf(android.os.SystemClock.elapsedRealtime()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now.longValue = android.os.SystemClock.elapsedRealtime()
+            delay(1000)
+        }
+    }
+    val shown = videoTiles(tiles.keys.associateWith { WaCore.video.lastFrameAt(it) }, call.members, now.longValue)
+    if (shown.isEmpty()) {
+        StatusText(if (call.phase < 4) call.phaseLabel else "no video")
+        return
+    }
+    val columns = if (shown.size > 2) 2 else 1
+    val rows = (shown.size + columns - 1) / columns
+    val cellW = boxW / columns
+    val cellH = boxH / rows
+    Column(Modifier.fillMaxSize()) {
+        shown.chunked(columns).forEach { row ->
+            androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().weight(1f)) {
+                row.forEach { p ->
+                    key(p) {
+                        Box(Modifier.weight(1f).fillMaxSize()) {
+                            val t = tiles[p] ?: VideoTile()
+                            RotatedVideo(
+                                frameW = t.width,
+                                frameH = t.height,
+                                quarterTurns = (4 - t.orientation) % 4,
+                                mirror = false,
+                                boxW = cellW,
+                                boxH = cellH,
+                                modifier = Modifier.align(Alignment.Center),
+                                onSurface = { WaCore.video.setParticipantSurface(p, it) },
+                            )
+                            LengthTag(rememberTitle(p), Modifier.align(Alignment.BottomStart).padding(1.dp))
+                        }
+                    }
+                }
+                // An odd last row keeps its tile the same size as the others.
+                if (row.size < columns) Box(Modifier.weight(1f).fillMaxSize())
+            }
+        }
     }
 }
 

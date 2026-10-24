@@ -37,3 +37,30 @@ fun groupCallJoined(names: List<String>): String = if (names.isEmpty()) "" else 
 
 /** The incoming call screen's line: "incoming call", "incoming group video call", … */
 fun incomingLabel(c: CallUi): String = "incoming " + (if (c.groupCall) "group " else "") + (if (c.video) "video call" else "call")
+
+/** At most this many participants' video at once: a 2×2 grid on the small screen. */
+const val MAX_VIDEO_TILES = 4
+
+/** A participant whose last frame is older than this has turned their camera off (or left). */
+const val VIDEO_STALE_MS = 3_000L
+
+/**
+ * Whose video the grid shows: those with a frame in the last [VIDEO_STALE_MS], at most
+ * [MAX_VIDEO_TILES], the most recently active first when there are more; drawn in the call's
+ * own order ([members], the caller first), so tiles don't jump around.
+ */
+fun videoTiles(
+    lastFrameAt: Map<String, Long>,
+    members: List<String>,
+    now: Long,
+): List<String> {
+    val live = lastFrameAt.filter { (_, at) -> at > 0 && now - at <= VIDEO_STALE_MS }
+    val shown =
+        live.entries
+            .sortedByDescending { it.value }
+            .take(MAX_VIDEO_TILES)
+            .map { it.key }
+            .toSet()
+    val order = members.withIndex().associate { (i, m) -> m to i }
+    return shown.sortedWith(compareBy<String> { order[it] ?: Int.MAX_VALUE }.thenBy { it })
+}

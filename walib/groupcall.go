@@ -55,3 +55,34 @@ func (c *Client) reportGroup(call *meowcaller.Call) {
 	}
 	call.OnGroupState(report)
 }
+
+// receiveGroupVideo sends a group call's video to the renderer per participant (see
+// VideoRenderer.ParticipantFrame) rather than all of it into one stream.
+func (c *Client) receiveGroupVideo(call *meowcaller.Call) {
+	id := call.ID()
+	c.mu.Lock()
+	c.groupVideo = id
+	c.mu.Unlock()
+	call.OnParticipantVideoFrame(func(f meowcaller.ParticipantVideoFrame) {
+		c.mu.Lock()
+		r := c.renderer
+		c.mu.Unlock()
+		if r == nil {
+			return
+		}
+		r.ParticipantFrame(participantKey(f, c.canonical), max(f.Orientation, 0), f.AccessUnit)
+	})
+}
+
+// participantKey names a video frame's sender: their canonical JID, else the device's, else
+// the call's own participant ID.
+func participantKey(f meowcaller.ParticipantVideoFrame, canonical func(types.JID, map[string]types.JID) types.JID) string {
+	switch {
+	case !f.Sender.IsEmpty():
+		return canonical(f.Sender, nil).String()
+	case !f.Device.IsEmpty():
+		return canonical(f.Device, nil).String()
+	default:
+		return "participant:" + f.ParticipantID
+	}
+}

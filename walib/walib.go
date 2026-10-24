@@ -112,6 +112,10 @@ type Listener interface {
 // Kotlin (MediaCodec decoder); called from Go goroutines.
 type VideoRenderer interface {
 	Frame(accessUnit []byte)
+	// ParticipantFrame is one participant's video in a group call: participant is their
+	// canonical JID, orientation the counter-clockwise quarter turns their frames carry. A group
+	// call's video comes only this way, never through Frame.
+	ParticipantFrame(participant string, orientation int, accessUnit []byte)
 }
 
 // Speaker plays peer audio (16 kHz mono s16le). Implemented in Kotlin (AudioTrack).
@@ -131,8 +135,10 @@ type Client struct {
 	mic      *micSource
 	speaker  Speaker
 	renderer VideoRenderer
-	mediaDir string
-	cancel   context.CancelFunc
+	// groupVideo is the current call's ID while it is a group call: its video goes per participant.
+	groupVideo string
+	mediaDir   string
+	cancel     context.CancelFunc
 }
 
 // NewClient opens (or creates) the session database at dbPath. Nothing connects yet.
@@ -818,6 +824,7 @@ func (c *Client) onIncoming(call *meowcaller.Call) {
 	c.attach(call)
 	if _, ok := call.GroupState(); ok {
 		c.reportGroup(call)
+		c.receiveGroupVideo(call)
 	}
 	c.l.OnIncomingCall(call.ID(), c.canonical(call.Peer(), nil).String(), call.IsVideo())
 }
@@ -844,6 +851,9 @@ func (c *Client) attach(call *meowcaller.Call) {
 			c.call = nil
 			c.mic = nil
 		}
+		if c.groupVideo == id {
+			c.groupVideo = ""
+		}
 		c.mu.Unlock()
 		mic.Close()
 		c.l.OnCallEnded(id, reason)
@@ -869,8 +879,9 @@ type videoSink struct {
 func (v *videoSink) WriteVideo(au []byte) error {
 	v.c.mu.Lock()
 	r := v.c.renderer
+	group := v.c.groupVideo == v.callID
 	v.c.mu.Unlock()
-	if r != nil {
+	if r != nil && !group {
 		r.Frame(au)
 	}
 	return nil

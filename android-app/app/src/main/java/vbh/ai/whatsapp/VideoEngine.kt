@@ -19,13 +19,15 @@ import android.os.HandlerThread
 import android.util.Range
 import android.util.Size
 import android.view.Surface
+import kotlinx.coroutines.flow.update
 import vbh.ai.whatsapp.walib.VideoRenderer
 
 /**
  * Video for calls. meowcaller only carries H.264, so this does the rest:
  * - send: front camera -> ImageReader -> hardware H.264 encoder (constrained baseline,
  *   ~640x480, 15 fps, SPS/PPS before every keyframe) -> [send] as Annex-B access units;
- * - receive: Annex-B access units from Go ([frame]) -> hardware decoder -> remote surface.
+ * - receive: Annex-B access units from Go ([frame], or [participantFrame] per group call
+ *   participant) -> hardware decoder ([RemoteDecoder]) -> that stream's surface.
  * Matches what meowcaller's reference browser client sends.
  */
 class VideoEngine(
@@ -36,11 +38,6 @@ class VideoEngine(
 
     /** Fired when their video arrives but no video view exists yet (e.g. still on the audio screen). */
     @Volatile var onRemoteVideoWithoutView: (() -> Unit)? = null
-
-    // Counters for the log: what went in and out, so a bad call can be diagnosed.
-    private var framesIn = 0
-    private var framesDropped = 0
-    private var framesShown = 0
 
     // ------------------------------------------------------------------ send side
     //
@@ -406,119 +403,69 @@ class VideoEngine(
 
     // ------------------------------------------------------------------ receive side
 
-    private val decodeLock = Object()
-    private var remoteSurface: Surface? = null
-    private var decoder: MediaCodec? = null
-    private var decodeThread: Thread? = null
+    /** The peer's video in a 1:1 call. */
+    private val peer =
+        RemoteDecoder(
+            "peer",
+            onFirstShown = { onRemoteFrameShown?.invoke() },
+            onSize = { w, h -> WaState.remoteVideoSize.value = w to h },
+        )
 
-    @Volatile private var decoding = false
-    private var pts = 0L
-    private var shownSinceStart = 0
+    /** Each participant's video in a group call, by participant JID. */
+    private val participants = java.util.concurrent.ConcurrentHashMap<String, RemoteDecoder>()
 
     /** The surface the peer's video is drawn into; null when the video view goes away. */
-    fun setRemoteSurface(surface: Surface?) {
-        synchronized(decodeLock) {
-            releaseDecoderLocked()
-            remoteSurface = surface
-        }
+    fun setRemoteSurface(surface: Surface?) = peer.setSurface(surface)
+
+    /** The surface [participant]'s video is drawn into; null when their tile goes away. */
+    fun setParticipantSurface(
+        participant: String,
+        surface: Surface?,
+    ) {
+        participants[participant]?.setSurface(surface)
     }
 
-    fun releaseDecoder() =
-        synchronized(decodeLock) {
-            releaseDecoderLocked()
-            if (framesIn > 0) WaState.log("video in: total received $framesIn, dropped $framesDropped, shown $framesShown")
-            framesIn = 0
-            framesDropped = 0
-            framesShown = 0
-        }
+    /** When [participant]'s last frame arrived (elapsed ms), 0 if none yet. */
+    fun lastFrameAt(participant: String): Long = participants[participant]?.lastFrameAt ?: 0L
+
+    fun releaseDecoder() {
+        peer.release()
+        participants.values.forEach { it.release() }
+        participants.clear()
+        WaState.groupVideo.value = emptyMap()
+    }
 
     /** Called from Go with one access unit of the peer's video. */
     override fun frame(accessUnit: ByteArray) {
-        synchronized(decodeLock) {
-            framesIn++
-            val surface = remoteSurface
-            if (surface == null) {
-                framesDropped++
-                if (IDR in nalTypes(accessUnit) || SPS in nalTypes(accessUnit)) onRemoteVideoWithoutView?.invoke()
-                return
-            }
-            if (decoder == null) {
-                // A decoder can only start on a keyframe (it needs SPS/PPS + IDR).
-                val types = nalTypes(accessUnit)
-                if (SPS !in types && IDR !in types) return
-                startDecoderLocked(surface)
-            }
-            val codec = decoder ?: return
-            try {
-                val idx = codec.dequeueInputBuffer(20_000)
-                if (idx < 0) {
-                    framesDropped++
-                    return
-                } // decoder busy: drop rather than build latency
-                codec.getInputBuffer(idx)?.apply {
-                    clear()
-                    put(accessUnit)
-                }
-                codec.queueInputBuffer(idx, 0, accessUnit.size, pts, 0)
-                pts += 1_000_000L / FPS
-                if (framesIn % 150 == 0) WaState.log("video in: received $framesIn, dropped $framesDropped, shown $framesShown")
-            } catch (e: Exception) {
-                WaState.log("video: decode error ${e.message}")
-                releaseDecoderLocked() // restart on the next keyframe
-            }
+        if (!peer.frame(accessUnit)) {
+            val types = nalTypes(accessUnit)
+            if (IDR in types || SPS in types) onRemoteVideoWithoutView?.invoke()
         }
     }
 
-    private fun startDecoderLocked(surface: Surface) {
-        val codec = MediaCodec.createDecoderByType(MIME)
-        codec.configure(MediaFormat.createVideoFormat(MIME, WIDTH, HEIGHT), surface, null, 0)
-        codec.start()
-        decoder = codec
-        decoding = true
-        pts = 0
-        shownSinceStart = 0
-        decodeThread =
-            Thread({
-                val info = MediaCodec.BufferInfo()
-                while (decoding) {
-                    val idx =
-                        try {
-                            codec.dequeueOutputBuffer(info, 10_000)
-                        } catch (_: Exception) {
-                            break
-                        }
-                    when {
-                        idx >= 0 -> {
-                            runCatching {
-                                codec.releaseOutputBuffer(idx, true)
-                                framesShown++
-                                if (shownSinceStart++ == 0) {
-                                    WaState.log("video in: first frame shown")
-                                    onRemoteFrameShown?.invoke()
-                                }
-                            }
-                        }
-
-                        idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                            runCatching {
-                                val f = codec.outputFormat
-                                WaState.remoteVideoSize.value = f.getInteger(MediaFormat.KEY_WIDTH) to f.getInteger(MediaFormat.KEY_HEIGHT)
-                            }
-                        }
-                    }
-                }
-            }, "wa-decode").also { it.start() }
-        WaState.log("video: decoder started")
+    /** Called from Go with one access unit of a group call participant's video. */
+    override fun participantFrame(
+        participant: String,
+        orientation: Long,
+        accessUnit: ByteArray,
+    ) {
+        val d =
+            participants.getOrPut(participant) {
+                RemoteDecoder(
+                    "participant ${participants.size + 1}",
+                    onFirstShown = { onRemoteFrameShown?.invoke() },
+                    onSize = { w, h -> updateTile(participant) { it.copy(width = w, height = h) } },
+                )
+            }
+        val turns = orientation.toInt()
+        if (WaState.groupVideo.value[participant]?.orientation != turns) updateTile(participant) { it.copy(orientation = turns) }
+        d.frame(accessUnit)
     }
 
-    private fun releaseDecoderLocked() {
-        decoding = false
-        decodeThread?.join(300)
-        decodeThread = null
-        runCatching { decoder?.stop() }
-        runCatching { decoder?.release() }
-        decoder = null
-    }
+    private fun updateTile(
+        participant: String,
+        change: (VideoTile) -> VideoTile,
+    ) = WaState.groupVideo.update { it + (participant to change(it[participant] ?: VideoTile())) }
 
     companion object {
         private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
@@ -529,8 +476,8 @@ class VideoEngine(
         // ~800 kbps, variable: measured on a real call the path showed ~0% loss and ~10 ms
         // jitter, and 300 kbps constant-rate produced 2 KB keyframes (very blocky picture).
         private const val BITRATE = 800_000
-        private const val IDR = 5
-        private const val SPS = 7
+        const val IDR = 5
+        const val SPS = 7
 
         /** NAL unit types present in an Annex-B access unit. */
         fun nalTypes(au: ByteArray): Set<Int> {

@@ -33,4 +33,17 @@ class GroupCallTest {
         assertEquals("incoming call", incomingLabel(CallUi("C", "1@lid", incoming = true)))
         assertEquals(listOf("1@lid"), c.joined)
     }
+
+    @Test fun theGridShowsLiveVideoInTheCallsOrder() {
+        val now = 100_000L
+        val frames = mapOf("c" to now - 100, "a" to now - 200, "stale" to now - VIDEO_STALE_MS - 1, "none" to 0L)
+        assertEquals(listOf("a", "c"), videoTiles(frames, listOf("a", "b", "c", "stale"), now))
+    }
+
+    @Test fun theGridKeepsTheFourMostRecentlyActive() {
+        val now = 100_000L
+        val frames = (1..6).associate { "p$it" to now - it * 10L }
+        assertEquals(listOf("p1", "p2", "p3", "p4"), videoTiles(frames, listOf("p6", "p5", "p4", "p3", "p2", "p1"), now).sorted())
+        assertEquals(listOf("p4", "p3", "p2", "p1"), videoTiles(frames, listOf("p6", "p5", "p4", "p3", "p2", "p1"), now))
+    }
 }
