@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -148,7 +149,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.VideoWaiting(
 }
 
 /**
- * Plays [file] fitted to the screen, with play/pause and a seek bar under it. Sound goes to the
+ * Plays [file] fitted to the screen as soon as it's ready, with play/pause and a seek bar under it. Sound goes to the
  * media stream, so the volume keys work. It pauses when the app goes to the background, when
  * another app (or a call) takes the audio, and when a call comes in. At the end it returns to the
  * start and stays paused.
@@ -196,8 +197,8 @@ private fun androidx.compose.foundation.layout.ColumnScope.VideoPlayer(file: Fil
         player.setAudioAttributes(MEDIA_ATTRIBUTES)
         player.setOnPreparedListener {
             duration = it.duration
-            // Shows the first frame.
-            it.seekTo(0)
+            // Opening a video is asking to watch it: it starts at once, unless a call is on.
+            if (WaState.call.value == null) play() else it.seekTo(0)
         }
         player.setOnVideoSizeChangedListener { _, w, h -> if (w > 0 && h > 0) aspect = w.toFloat() / h }
         player.setOnCompletionListener {
@@ -346,14 +347,26 @@ internal fun RoundBadge(content: @Composable () -> Unit) {
         Modifier
             .size(3.5f.gridUnitsAsDp())
             .background(colors.background, CircleShape)
-            .border(1.dp, colors.content, CircleShape),
+            .border(2.dp, colors.content, CircleShape),
         contentAlignment = Alignment.Center,
     ) { content() }
 }
 
 /** The play mark over a video's preview: tap to play it full screen. */
 @Composable
-internal fun PlayBadge() = RoundBadge { LightIcon(LightIcons.PLAY, size = 1.5f, contentDescription = "Play video") }
+internal fun PlayBadge() =
+    RoundBadge {
+        // A triangle's weight sits a third of the way across its box, so centring the box leaves it
+        // looking left of centre: nudged right by a sixth of its drawn width (33 of 40 units tall).
+        LightIcon(
+            LightIcons.PLAY,
+            size = PLAY_ICON_GU,
+            contentDescription = "Play video",
+            modifier = Modifier.offset(x = (PLAY_ICON_GU * 33f / 40f / 6f).gridUnitsAsDp()),
+        )
+    }
+
+private const val PLAY_ICON_GU = 1.5f
 
 /** A video's length on its preview: small white text on a black tag. */
 @Composable
