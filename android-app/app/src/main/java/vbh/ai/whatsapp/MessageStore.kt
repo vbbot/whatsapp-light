@@ -15,8 +15,7 @@ data class Msg(
     val ts: Long,
     val fromMe: Boolean,
     val isGroup: Boolean,
-    val pending: Boolean = false,
-    /** For our own messages: how far it got. See [Status]. */
+    /** For our own messages: how far it got, or that it's still waiting to go. See [Status]. */
     val status: Int = Status.NONE,
     /** For incoming messages: we already sent a read receipt for it. */
     val readSent: Boolean = false,
@@ -34,6 +33,12 @@ data class Msg(
     val editedAt: Long = 0L,
 ) {
     val isReply: Boolean get() = quoteId.isNotEmpty()
+
+    /** Ours and not sent yet: queued (see [Outbox]), or refused by WhatsApp. */
+    val pending: Boolean get() = status == Status.QUEUED || status == Status.NOT_SENT
+
+    /** Ours, and WhatsApp refused it (not for being offline): it can be retried or deleted. */
+    val notSent: Boolean get() = status == Status.NOT_SENT
 
     /** Deleted for everyone: kept as a "deleted" line in place of what it said. */
     val isDeleted: Boolean get() = text == DELETED_TEXT
@@ -104,6 +109,8 @@ fun mediaFileName(id: String): String = id.replace(Regex("[^A-Za-z0-9_-]"), "_")
 
 /** Delivery state of our own messages; only ever moves forward. */
 object Status {
+    const val NOT_SENT = -2 // WhatsApp refused it; it can be retried
+    const val QUEUED = -1 // stored, waiting to be sent (see Outbox)
     const val NONE = 0
     const val SENT = 1 // server accepted it (single tick)
     const val DELIVERED = 2 // reached their phone (double tick)
@@ -168,7 +175,6 @@ object MessageStore {
     val phones = MutableStateFlow<Map<String, String>>(emptyMap())
 
     @Volatile private var db: SQLiteDatabase? = null
-    private val pending = mutableMapOf<String, Msg>()
 
     /** Receipts that arrived before the message they refer to was stored (id -> status). */
     private val earlyReceipts = mutableMapOf<String, Int>()
@@ -184,7 +190,6 @@ object MessageStore {
     @Synchronized
     fun open(database: SQLiteDatabase) {
         db = database
-        pending.clear()
         earlyReceipts.clear()
         changes.value++
     }
@@ -203,16 +208,11 @@ object MessageStore {
                 d.endTransaction()
             }
         }
-        pending.clear()
         earlyReceipts.clear()
         names.value = emptyMap()
         phones.value = emptyMap()
         changes.value++
     }
-
-    /** Pending echoes, copied under the lock (reads don't take it; SQLite handles its own). */
-    @Synchronized
-    private fun pendingNow(): List<Msg> = pending.values.toList()
 
     private var batchDepth = 0
     private var batchChanged = false
@@ -239,11 +239,6 @@ object MessageStore {
 
     @Synchronized
     fun add(m: Msg) {
-        if (m.pending) {
-            pending[m.id] = m
-            changed()
-            return
-        }
         val d = db ?: return
         d.tx { upsert(this, m) }
         changed()
@@ -278,7 +273,7 @@ object MessageStore {
             m.copy(
                 text = if (keepEdit) old.text else m.text,
                 editedAt = maxOf(m.editedAt, old?.editedAt ?: 0L),
-                status = maxOf(m.status, old?.status ?: Status.NONE, earlyReceipts.remove(m.id) ?: Status.NONE),
+                status = maxOf(m.status, old?.status ?: m.status, earlyReceipts.remove(m.id) ?: m.status),
                 readSent = m.readSent || old?.readSent == true,
                 // Never swap a downloaded photo back for its thumbnail (history re-sends those).
                 media =
@@ -411,10 +406,25 @@ object MessageStore {
             if (it.moveToFirst()) it.getString(0) else null
         }
 
-    /** Drops a pending local echo (it was sent and re-added under its real ID, or it failed). */
+    /** Our messages waiting to be sent, oldest first. */
+    fun queued(): List<Msg> =
+        db
+            ?.rawQuery("SELECT * FROM messages WHERE from_me = 1 AND status = ? ORDER BY ts ASC", arrayOf(Status.QUEUED.toString()))
+            ?.readAll(ChatDb::msg)
+            .orEmpty()
+
+    /**
+     * Marks our unsent message [id] as [status]: [Status.QUEUED] (to send, or retry) or
+     * [Status.NOT_SENT] (refused). A message already sent is left as it is.
+     */
     @Synchronized
-    fun remove(id: String) {
-        if (pending.remove(id) != null) changed()
+    fun setUnsent(
+        id: String,
+        status: Int,
+    ) {
+        val d = db ?: return
+        val values = android.content.ContentValues().apply { put("status", status) }
+        if (d.update("messages", values, "id = ? AND from_me = 1 AND status < ?", arrayOf(id, Status.NONE.toString())) > 0) changed()
     }
 
     /** A photo finished downloading: point the message at the full-size file. */
@@ -576,7 +586,6 @@ object MessageStore {
         } finally {
             d.endTransaction()
         }
-        pending.values.removeAll { it.chat == chat && it.ts <= beforeMs }
         changed()
         return media
     }
@@ -720,18 +729,7 @@ object MessageStore {
                 }
                 // Two messages with the same newest timestamp: keep one.
                 .distinctBy { it.chat }
-        val pending = pendingNow().filter { chatState(it.chat).archived == archived }
-        if (pending.isEmpty()) return stored
-        // A chat whose only message is still sending (a brand-new chat) shows up too.
-        val byChat = stored.associateBy { it.chat }.toMutableMap()
-        for (p in pending) {
-            val cur = byChat[p.chat]
-            if (cur == null || p.ts > cur.last.ts) {
-                val state = chatState(p.chat)
-                byChat[p.chat] = ChatSummary(p.chat, p, cur?.unread ?: false, state.mutedAt(now), state.pinnedAt)
-            }
-        }
-        return byChat.values.sortedWith(listOrder)
+        return stored
     }
 
     /** How many chats with messages are archived (whether to offer the pull-down Archived row). */
@@ -755,20 +753,17 @@ object MessageStore {
             )?.use { if (it.moveToFirst()) it.getInt(0) else 0 }
             ?: 0
 
-    /** The newest [limit] messages of [chat], oldest first, including pending local echoes. */
+    /** The newest [limit] messages of [chat], oldest first. */
     fun thread(
         chat: String,
         limit: Int,
     ): List<Msg> {
-        val d = db ?: return pendingNow().filter { it.chat == chat }.sortedBy { it.ts }
-        val stored =
-            d
-                .rawQuery(
-                    "SELECT * FROM (SELECT * FROM messages WHERE chat = ? ORDER BY ts DESC LIMIT ?) ORDER BY ts ASC",
-                    arrayOf(chat, limit.toString()),
-                ).readAll(ChatDb::msg)
-        val mine = pendingNow().filter { it.chat == chat }
-        return if (mine.isEmpty()) stored else (stored + mine).sortedBy { it.ts }
+        val d = db ?: return emptyList()
+        return d
+            .rawQuery(
+                "SELECT * FROM (SELECT * FROM messages WHERE chat = ? ORDER BY ts DESC LIMIT ?) ORDER BY ts ASC",
+                arrayOf(chat, limit.toString()),
+            ).readAll(ChatDb::msg)
     }
 
     /** [chat]'s newest stored message, or null. */

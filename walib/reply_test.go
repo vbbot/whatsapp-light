@@ -1,6 +1,7 @@
 package walib
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/polymorfa/hypermeow/proto/waE2E"
@@ -22,5 +23,12 @@ func TestContextInfoFromTextAndMedia(t *testing.T) {
 	}
 	if messageText(nil) != "" {
 		t.Error("no quoted message means no text")
+	}
+}
+
+func TestNewMessageIDsAreFreshWhatsAppIDs(t *testing.T) {
+	a, b := NewMessageID(), NewMessageID()
+	if a == b || len(a) < 16 || a != strings.ToUpper(a) {
+		t.Errorf("ids %q %q", a, b)
 	}
 }

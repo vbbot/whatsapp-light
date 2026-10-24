@@ -11,7 +11,7 @@ class ReceiptTagTest {
         id: String,
         status: Int,
         pending: Boolean = false,
-    ) = Msg(id, "c@s.whatsapp.net", "me", "", "x", ++ts, fromMe = true, isGroup = false, pending = pending, status = status)
+    ) = Msg(id, "c@s.whatsapp.net", "me", "", "x", ++ts, fromMe = true, isGroup = false, status = if (pending) Status.QUEUED else status)
 
     private fun theirs(id: String) = Msg(id, "c@s.whatsapp.net", "c", "C", "x", ++ts, fromMe = false, isGroup = false)
 

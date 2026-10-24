@@ -43,11 +43,12 @@ class MessageStoreTest {
         assertEquals("3", chats.last().last.id)
     }
 
-    @Test fun pendingMessageShowsUntilRemoved() {
-        MessageStore.add(m("pending-1", "new@lid", 5, fromMe = true).copy(pending = true))
+    @Test fun aQueuedMessageIsStoredAndShowsItsChat() {
+        MessageStore.add(m("q1", "new@lid", 5, fromMe = true).copy(status = Status.QUEUED))
         assertEquals(listOf("new@lid"), MessageStore.chats().map { it.chat })
-        assertEquals(1, MessageStore.thread("new@lid", 10).size)
-        MessageStore.remove("pending-1")
+        assertTrue(MessageStore.thread("new@lid", 10).single().pending)
+        assertEquals(listOf("q1"), MessageStore.queued().map { it.id })
+        MessageStore.deleteMessage("q1")
         assertTrue(MessageStore.chats().isEmpty())
     }
 

@@ -55,7 +55,7 @@ class DeleteMessageTest {
         assertTrue(canDeleteForEveryone(msg("1", now - 60_000), now))
         assertFalse(canDeleteForEveryone(msg("1", now - REVOKE_WINDOW_MS - 1), now))
         assertFalse(canDeleteForEveryone(msg("1", now, fromMe = false), now))
-        assertFalse(canDeleteForEveryone(msg("1", now).copy(pending = true), now))
+        assertFalse(canDeleteForEveryone(msg("1", now).copy(status = Status.QUEUED), now))
         assertFalse(canDeleteForEveryone(msg("1", now).copy(text = DELETED_TEXT), now))
     }
 
