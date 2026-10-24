@@ -37,7 +37,8 @@ class ChatDb(
                 media_ref TEXT NOT NULL DEFAULT '',
                 quote_id TEXT NOT NULL DEFAULT '',
                 quote_sender TEXT NOT NULL DEFAULT '',
-                quote_text TEXT NOT NULL DEFAULT ''
+                quote_text TEXT NOT NULL DEFAULT '',
+                edited_at INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent(),
         )
@@ -102,11 +103,13 @@ class ChatDb(
         if (oldVersion < 6) createReactions(db)
         // 7: when someone last reacted to one of ours (it marks the chat unread).
         if (oldVersion < 7) db.execSQL("ALTER TABLE chats ADD COLUMN reacted_at INTEGER NOT NULL DEFAULT 0")
+        // 8: when a message was last edited.
+        if (oldVersion < 8) db.execSQL("ALTER TABLE messages ADD COLUMN edited_at INTEGER NOT NULL DEFAULT 0")
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 7
+        const val VERSION = 8
 
         @Volatile private var shared: ChatDb? = null
 
@@ -131,6 +134,7 @@ class ChatDb(
                 put("quote_id", m.quoteId)
                 put("quote_sender", m.quoteSender)
                 put("quote_text", m.quoteText)
+                put("edited_at", m.editedAt)
             }
 
         fun msg(c: Cursor) =
@@ -150,6 +154,7 @@ class ChatDb(
                 quoteId = c.getString(c.getColumnIndexOrThrow("quote_id")),
                 quoteSender = c.getString(c.getColumnIndexOrThrow("quote_sender")),
                 quoteText = c.getString(c.getColumnIndexOrThrow("quote_text")),
+                editedAt = c.getLong(c.getColumnIndexOrThrow("edited_at")),
             )
 
         fun values(r: CallRecord) =
