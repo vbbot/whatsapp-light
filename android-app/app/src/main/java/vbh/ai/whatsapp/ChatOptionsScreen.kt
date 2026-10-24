@@ -92,7 +92,7 @@ fun ChatOptionsScreen(chat: String) {
 
 /** A full-width action in the options stack. */
 @Composable
-private fun ToggleButton(
+internal fun ToggleButton(
     label: String,
     onClick: () -> Unit,
 ) {

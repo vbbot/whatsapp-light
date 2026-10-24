@@ -76,6 +76,8 @@ dependencies {
     // Light design language components (Compose + Material3 + LP3 keyboard come in via api)
     implementation("com.thelightphone:sdk-ui")
     implementation("androidx.activity:activity-compose:1.13.0")
+    // The composer hosts the LP3 keyboard's view model itself (see Composer.kt), as the SDK's editor does.
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("com.google.zxing:core:3.5.3")
 

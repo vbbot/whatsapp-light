@@ -355,45 +355,7 @@ fun TabBar(
 
 // ---------------------------------------------------------------- composer / dial / new chat
 
-private val keyboardOptions = MutableStateFlow(defaultKeyboardOptions())
-
-@Composable
-fun ComposerScreen(chat: String) {
-    val title = rememberTitle(chat)
-    val state = rememberTextFieldState(Drafts.get(chat))
-    LaunchedEffect(state.text) { Drafts.set(chat, state.text.toString()) }
-    LightTextInputEditor(
-        title = title,
-        state = state,
-        keyboardOptionsFlow = keyboardOptions,
-        onSubmit = { text ->
-            val body = text.toString().trim()
-            if (body.isNotEmpty()) {
-                WaCore.sendText(chat, body)
-                Drafts.set(chat, "")
-                Nav.pop()
-            }
-        },
-        onBack = { Nav.pop() },
-        submitLabel = "Send",
-        submitIcon = LightIcons.SEND,
-        initialCaps = true,
-    )
-}
-
-/** Unsent drafts survive leaving the composer; process-scoped. */
-private object Drafts {
-    private val map = mutableMapOf<String, String>()
-
-    fun get(chat: String) = map[chat].orEmpty()
-
-    fun set(
-        chat: String,
-        text: String,
-    ) {
-        if (text.isEmpty()) map.remove(chat) else map[chat] = text
-    }
-}
+internal val keyboardOptions = MutableStateFlow(defaultKeyboardOptions())
 
 /**
  * Turns what the user typed into E.164 digits, using the phone's region for local numbers

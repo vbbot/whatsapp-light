@@ -205,6 +205,7 @@ class MainActivity : ComponentActivity() {
                 Screen.Permissions -> PermissionsScreen(firstRun = false) { Nav.pop() }
                 Screen.LogOut -> LogOutScreen()
                 is Screen.DeleteChat -> DeleteChatScreen(s.chat)
+                is Screen.MessageMenu -> MessageMenuScreen(s.chat, s.id)
             }
         }
     }

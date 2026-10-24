@@ -44,6 +44,12 @@ sealed interface Screen {
         val chat: String,
     ) : Screen
 
+    /** What a long press on a message offers (REPLY). */
+    data class MessageMenu(
+        val chat: String,
+        val id: String,
+    ) : Screen
+
     /** Mute, archive and the other actions for one chat (long-press it, or tap its name in the thread). */
     data class ChatOptions(
         val chat: String,
@@ -102,6 +108,7 @@ object Nav {
                     is Screen.Composer -> it.chat == chat
                     is Screen.ChatOptions -> it.chat == chat
                     is Screen.DeleteChat -> it.chat == chat
+                    is Screen.MessageMenu -> it.chat == chat
                     else -> false
                 }
             }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -37,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -70,6 +72,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.conflate
 import kotlin.math.ceil
 import android.graphics.Color as AColor
+
+/** How long the original of a tapped quote stays highlighted. */
+private const val HIGHLIGHT_MS = 1_500L
 
 /** Breaks a run of messages from one sender into a new group (time shown again). */
 private const val GROUP_GAP_MS = 15 * 60 * 1000L
@@ -112,6 +117,40 @@ fun ThreadScreen(chat: String) {
         WaCore.sendReadReceipts(chat)
     }
     ScrollDownForOwnMessages(listState, newest)
+
+    // Tapping a quote scrolls to the original and highlights it for a moment, loading older
+    // stored messages first if it isn't loaded yet.
+    val context = LocalContext.current
+    var jumpTo by remember { mutableStateOf<String?>(null) }
+    var highlighted by remember { mutableStateOf<String?>(null) }
+    // Waits until the original is loaded. Clears the target only after scrolling: changing it is
+    // what restarts (and so would cancel) this effect.
+    LaunchedEffect(jumpTo, msgs.size) {
+        val target = jumpTo ?: return@LaunchedEffect
+        val i = msgs.indexOfFirst { it.id == target }
+        if (i < 0) return@LaunchedEffect
+        // Reverse layout: index 0 is the bottom spacer, then newest first.
+        listState.animateScrollToItem(msgs.size - i)
+        highlighted = target
+        jumpTo = null
+    }
+    LaunchedEffect(highlighted) {
+        if (highlighted == null) return@LaunchedEffect
+        delay(HIGHLIGHT_MS)
+        highlighted = null
+    }
+
+    fun openQuote(m: Msg) {
+        val original = MessageStore.get(m.quoteId)?.takeIf { it.chat == chat }
+        if (original == null) {
+            android.widget.Toast
+                .makeText(context, "The original message isn't on this phone.", android.widget.Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+        if (msgs.none { it.id == original.id }) limit = maxOf(limit, MessageStore.countSince(chat, original.ts) + THREAD_PAGE)
+        jumpTo = original.id
+    }
     val waitingForPhone = loadOlderAtTop(chat, listState, page, connected, onLoadStoredPage = { limit += THREAD_PAGE })
 
     ScreenColumn {
@@ -141,6 +180,9 @@ fun ThreadScreen(chat: String) {
                                     showSender = isGroup && showTime,
                                     tag = tag?.takeIf { it.first == m.id }?.second,
                                     chatTitle = title,
+                                    highlighted = highlighted == m.id,
+                                    onQuote = { openQuote(m) },
+                                    onLongPress = { Nav.push(Screen.MessageMenu(chat, m.id)) },
                                 )
                             }
                             if (waitingForPhone) item(key = "loading") { Banner("Loading earlier messages…") }
@@ -309,12 +351,17 @@ private fun MessageRow(
     showSender: Boolean,
     tag: String?,
     chatTitle: String,
+    highlighted: Boolean,
+    onQuote: () -> Unit,
+    onLongPress: () -> Unit,
 ) {
     // Outgoing sits right, incoming left, each capped at 7/8 of the row. Outgoing gets a
     // wider right buffer so it stays clear of the scrollbar.
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
+            .then(if (highlighted) Modifier.background(LightThemeTokens.colors.contentSecondary.copy(alpha = 0.3f)) else Modifier)
+            .lightPressable(onTapLabel = "Message", onTap = {}, onLongPressLabel = "Message options", onLongPress = onLongPress)
             .padding(
                 start = 1.5f.gridUnitsAsDp(),
                 end = if (m.fromMe) 2.5f.gridUnitsAsDp() else 1.5f.gridUnitsAsDp(),
@@ -337,17 +384,43 @@ private fun MessageRow(
                 m.pending -> TimeTag("SENDING")
                 showTime -> TimeTag(formatMessageTime(m.ts))
             }
-            if (m.hasPicture) {
-                // Media is the one place colour is allowed: shown as-is, tap for full screen.
-                MediaThumb(m, onOpen = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle)) })
-                if (m.isVideo) MessageText("[Video]", m.fromMe, columnWidthPx)
-                if (m.caption.isNotEmpty()) MessageText(m.caption, m.fromMe, columnWidthPx)
+            if (m.isReply) {
+                // The quote line, then the body, sharing a left edge.
+                Column(Modifier.width(IntrinsicSize.Max)) {
+                    val changes by MessageStore.changes.collectAsState()
+                    val line = remember(m.id, m.quoteId, changes) { Replies.lineFor(m) }
+                    QuoteLine(
+                        line,
+                        Modifier
+                            .fillMaxWidth()
+                            .lightClickable(onClickLabel = "Go to the message this replies to", onClick = onQuote)
+                            .padding(top = 1.dp),
+                    )
+                    MessageBody(m, columnWidthPx, chatTitle)
+                }
             } else {
-                MessageText(m.text, m.fromMe, columnWidthPx)
+                MessageBody(m, columnWidthPx, chatTitle)
             }
             // Receipt tag in place of ticks: one quiet word under the message it applies to.
             tag?.let { LightText(text = it, variant = LightTextVariant.Superfine, modifier = Modifier.padding(top = 1.dp)) }
         }
+    }
+}
+
+/** A message's content: its picture (tap for full screen) and caption, or its text. */
+@Composable
+private fun MessageBody(
+    m: Msg,
+    columnWidthPx: Int,
+    chatTitle: String,
+) {
+    if (m.hasPicture) {
+        // Media is the one place colour is allowed: shown as-is, tap for full screen.
+        MediaThumb(m, onOpen = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle)) })
+        if (m.isVideo) MessageText("[Video]", m.fromMe, columnWidthPx)
+        if (m.caption.isNotEmpty()) MessageText(m.caption, m.fromMe, columnWidthPx)
+    } else {
+        MessageText(m.text, m.fromMe, columnWidthPx)
     }
 }
 
