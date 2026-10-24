@@ -51,6 +51,22 @@ data class Msg(
     val caption: String get() = text.removePrefix("[image]").removePrefix("[video]").trim()
 }
 
+/** Someone's reaction to a message: [reactor] is a chat JID, or "me". */
+data class Reaction(
+    val messageId: String,
+    val reactor: String,
+    val emoji: String,
+    val ts: Long,
+)
+
+/** A message's reactions as one line: each emoji once, oldest first, with a count when shared ("❤️ 2 · 👍"). */
+fun reactionLine(reactions: List<Reaction>): String =
+    reactions
+        .sortedBy { it.ts }
+        .groupBy { it.emoji }
+        .entries
+        .joinToString(" · ") { (emoji, who) -> if (who.size > 1) "$emoji ${who.size}" else emoji }
+
 /** What a message deleted for everyone is stored as (its content is gone). */
 const val DELETED_TEXT = "[deleted]"
 
@@ -154,6 +170,7 @@ object MessageStore {
             d.beginTransaction()
             try {
                 d.delete("messages", null, null)
+                d.delete("reactions", null, null)
                 d.delete("chats", null, null)
                 d.setTransactionSuccessful()
             } finally {
@@ -249,6 +266,7 @@ object MessageStore {
     fun deleteMessage(id: String): String? {
         val d = db ?: return null
         val media = get(id)?.media
+        d.delete("reactions", "message_id = ?", arrayOf(id))
         if (d.delete("messages", "id = ?", arrayOf(id)) > 0) changed()
         return media?.ifEmpty { null }
     }
@@ -273,6 +291,59 @@ object MessageStore {
         if (d.update("messages", values, "id = ?", arrayOf(id)) > 0) changed()
         return media?.ifEmpty { null }
     }
+
+    /**
+     * Records [reactor]'s reaction to [messageId] ("" removes it). An older change than the one
+     * stored is ignored, so out-of-order delivery (history after live) can't undo a newer one.
+     */
+    @Synchronized
+    fun setReaction(
+        chat: String,
+        messageId: String,
+        reactor: String,
+        emoji: String,
+        ts: Long,
+    ) {
+        val d = db ?: return
+        val stored =
+            d.rawQuery("SELECT ts FROM reactions WHERE message_id = ? AND reactor = ?", arrayOf(messageId, reactor)).use {
+                if (it.moveToFirst()) it.getLong(0) else null
+            }
+        if (stored != null && ts in 1 until stored) return
+        if (emoji.isEmpty()) {
+            if (d.delete("reactions", "message_id = ? AND reactor = ?", arrayOf(messageId, reactor)) > 0) changed()
+            return
+        }
+        d.execSQL(
+            "INSERT OR REPLACE INTO reactions(message_id, chat, reactor, emoji, ts) VALUES(?, ?, ?, ?, ?)",
+            arrayOf<Any>(messageId, chat, reactor, emoji, ts),
+        )
+        changed()
+    }
+
+    /** The reactions to messages [ids], by message ID. */
+    fun reactions(ids: Collection<String>): Map<String, List<Reaction>> {
+        val d = db ?: return emptyMap()
+        if (ids.isEmpty()) return emptyMap()
+        val out = mutableMapOf<String, MutableList<Reaction>>()
+        // In chunks: SQLite caps the number of bound parameters.
+        for (chunk in ids.chunked(500)) {
+            val marks = chunk.joinToString(",") { "?" }
+            d.rawQuery("SELECT message_id, reactor, emoji, ts FROM reactions WHERE message_id IN ($marks)", chunk.toTypedArray()).use {
+                while (it.moveToNext()) {
+                    val r = Reaction(it.getString(0), it.getString(1), it.getString(2), it.getLong(3))
+                    out.getOrPut(r.messageId) { mutableListOf() }.add(r)
+                }
+            }
+        }
+        return out
+    }
+
+    /** Our own reaction to [messageId], or null. */
+    fun ownReaction(messageId: String): String? =
+        db?.rawQuery("SELECT emoji FROM reactions WHERE message_id = ? AND reactor = 'me'", arrayOf(messageId))?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        }
 
     /** Drops a pending local echo (it was sent and re-added under its real ID, or it failed). */
     @Synchronized
@@ -412,6 +483,7 @@ object MessageStore {
                 .readAll { it.getString(0) }
         d.beginTransaction()
         try {
+            d.execSQL("DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE chat = ? AND ts <= ?)", args)
             d.delete("messages", "chat = ? AND ts <= ?", args)
             if (!keepChat && newestTs(d, chat) == null) d.delete("chats", "chat = ?", arrayOf(chat))
             d.setTransactionSuccessful()

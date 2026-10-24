@@ -15,6 +15,8 @@ data class HistoryBatch(
     val messages: List<Msg>,
     val chats: Map<String, HistoryChat>,
     val calls: List<CallRecord>,
+    /** Reactions on the batch's messages, with each message's chat. */
+    val reactions: List<Pair<String, Reaction>> = emptyList(),
 )
 
 /** A conversation's details in a history batch; [mutedUntil] as in [ChatState]. */
@@ -114,12 +116,19 @@ object History {
                 .toSet()
         val messages = raw.map { it.copy(readSent = it.id !in stillUnread) }
         val calls = o.optJSONArray("calls").objects().map(::call)
-        return HistoryBatch(o.optBoolean("onDemand"), o.optString("type"), o.optInt("progress"), messages, chats, calls)
+        val reactions =
+            o.optJSONArray("messages").objects().flatMap { m ->
+                m.optJSONArray("reactions").objects().map {
+                    m.getString("chat") to Reaction(m.getString("id"), it.getString("reactor"), it.getString("emoji"), it.optLong("ts"))
+                }
+            }
+        return HistoryBatch(o.optBoolean("onDemand"), o.optString("type"), o.optInt("progress"), messages, chats, calls, reactions)
     }
 
     fun import(batch: HistoryBatch) {
         MessageStore.batch {
             MessageStore.addAll(batch.messages)
+            for ((chat, r) in batch.reactions) MessageStore.setReaction(chat, r.messageId, r.reactor, r.emoji, r.ts)
             for ((chat, info) in batch.chats) {
                 MessageStore.setChatName(chat, info.name)
                 if (!batch.onDemand) {
