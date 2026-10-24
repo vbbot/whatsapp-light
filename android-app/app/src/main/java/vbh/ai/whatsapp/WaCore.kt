@@ -91,10 +91,16 @@ object WaCore : Listener {
         }
     }
 
-    /** From [KeepAliveReceiver]: ping, or reconnect if the socket died while the phone slept. */
+    /**
+     * From [KeepAliveReceiver]: ping, or reconnect if the socket died or the ping went unanswered.
+     * Returns once the ping is answered (or the reconnect started).
+     */
     fun keepAlive() {
         val ok = runCatching { client?.keepAlive() }.getOrNull()
-        if (ok == false) WaState.log("keepalive: not answered, reconnecting")
+        if (ok == false) {
+            WaState.log("keepalive: not answered, reconnecting")
+            Wake.hold(5_000)
+        }
     }
 
     private fun sessionDb() = File(app.filesDir, "wa.db")
@@ -540,7 +546,7 @@ object WaCore : Listener {
     }
 
     override fun onConnected(jid: String) {
-        Wake.hold(10_000)
+        Wake.hold(3_000)
         WaState.qr.value = null
         WaState.loggedOutNotice.value = null
         WaState.linked.value = true
@@ -577,7 +583,7 @@ object WaCore : Listener {
     }
 
     override fun onDisconnected() {
-        Wake.hold(30_000) // let whatsmeow reconnect
+        Wake.hold(5_000) // whatsmeow reconnects within a second or two
         WaState.connected.value = false
         WaState.status.value = "disconnected, reconnecting…"
     }

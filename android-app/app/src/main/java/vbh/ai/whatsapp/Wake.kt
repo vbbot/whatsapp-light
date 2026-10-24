@@ -17,6 +17,7 @@ import kotlin.concurrent.thread
 object Wake {
     private var work: PowerManager.WakeLock? = null
     private var call: PowerManager.WakeLock? = null
+    private var ping: PowerManager.WakeLock? = null
     private var until = 0L
 
     fun init(context: Context) {
@@ -24,6 +25,7 @@ object Wake {
         val pm = context.getSystemService(PowerManager::class.java)
         work = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "waPoc:work").apply { setReferenceCounted(false) }
         call = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "waPoc:call").apply { setReferenceCounted(false) }
+        ping = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "waPoc:ping").apply { setReferenceCounted(false) }
     }
 
     /** Keeps the CPU awake for at least [ms] from now (extends, never shortens, the current hold). */
@@ -47,12 +49,28 @@ object Wake {
         }
     }
 
+    /** Runs [block] (a keepalive ping) awake, letting go as soon as it returns, or after [maxMs]. */
+    fun whilePinging(
+        maxMs: Long,
+        block: () -> Unit,
+    ) {
+        val p = ping
+        p?.acquire(maxMs)
+        try {
+            block()
+        } finally {
+            if (p?.isHeld == true) p.release()
+        }
+    }
+
     private const val CALL_MAX_MS = 4 * 60 * 60_000L
 }
 
 /**
- * Wakes the app every few minutes to check the connection: whatsmeow's own keepalive timer stops
- * while the CPU sleeps, so without this the server could drop the socket unnoticed.
+ * Wakes the app to ping WhatsApp while the phone sleeps (whatsmeow's own keepalive timer stops with
+ * the CPU). Without pings the server drops an idle socket after about a minute, and reconnecting
+ * costs far more than a ping. The same approach as Signal and Molly without push: an exact
+ * allow-while-idle alarm, a short ping, and a fresh connection when a ping goes unanswered.
  */
 class KeepAliveReceiver : BroadcastReceiver() {
     override fun onReceive(
@@ -60,17 +78,27 @@ class KeepAliveReceiver : BroadcastReceiver() {
         intent: Intent,
     ) {
         Wake.init(context)
-        Wake.hold(KEEPALIVE_HOLD_MS)
         schedule(context)
-        thread(name = "wa-keepalive") { WaCore.keepAlive() }
+        // The system keeps the CPU up only while onReceive runs; hold it until the ping is answered.
+        val done = goAsync()
+        thread(name = "wa-keepalive") {
+            try {
+                Wake.whilePinging(PING_MAX_MS) { WaCore.keepAlive() }
+            } finally {
+                done.finish()
+            }
+        }
     }
 
     companion object {
-        /** Between checks. Android may stretch this while the phone is idle (Doze). */
-        const val INTERVAL_MS = 5 * 60_000L
+        /**
+         * Between pings: under the shortest idle time after which the server was seen closing the
+         * socket (about a minute). Android may stretch this while the phone is in deep Doze.
+         */
+        const val INTERVAL_MS = 45_000L
 
-        /** Long enough to ping, or to reconnect and receive what queued up meanwhile. */
-        private const val KEEPALIVE_HOLD_MS = 20_000L
+        /** A ping is answered in well under a second; this only caps a stuck one (walib waits 10 s). */
+        private const val PING_MAX_MS = 12_000L
 
         fun schedule(context: Context) {
             val am = context.getSystemService(AlarmManager::class.java)

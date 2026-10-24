@@ -32,8 +32,8 @@ class WaService : Service() {
             WaState.log("foreground service without microphone: ${e.message}")
             startForeground(1, WaCore.serviceNotification(), messaging)
         }
-        // No wake lock held here: the CPU sleeps between events (see Wake), and an alarm checks
-        // the connection every few minutes.
+        // No wake lock held here: the CPU sleeps between events (see Wake), and an alarm
+        // pings WhatsApp every 45 s while the phone sleeps (see KeepAliveReceiver).
         KeepAliveReceiver.schedule(this)
         return START_STICKY
     }
