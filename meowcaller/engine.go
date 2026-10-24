@@ -681,7 +681,10 @@ func (e *engine) answer(c *Call) error {
 	}
 	if m.group {
 		// Source of truth: https://github.com/purpshell/meowcaller/blob/676ebee3eca513b5348fab36cae5c560cc791238/datasheets/voip-group-invite-accept.md#L26-L45
-		accept, err := signaling.BuildActiveGroupAccept(c.id, m.creator, e.nextCallNodeID())
+		e.mu.Lock()
+		video := m.localVideo || m.remoteVideo
+		e.mu.Unlock()
+		accept, err := signaling.BuildActiveGroupAccept(c.id, m.creator, e.nextCallNodeID(), video)
 		if err != nil {
 			return err
 		}

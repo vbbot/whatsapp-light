@@ -26,3 +26,11 @@
    `peer video rtp ext` (frame info, initial bandwidth, short offset, transport seq) to
    compare with what we send (we send 0 for initial bandwidth and short offset). Reorder
    window widened to 200 ms / 96 packets after "late" packets grew at 80 ms.
+
+5. **Group video accept and group ID.** `BuildActiveGroupAccept` takes a `video` flag and, for a
+   video call, adds `<video dec=H264 device_orientation=0>` after `<audio>`, matching what
+   WhatsApp Web sends when it answers a group video call (`engine.go` passes the call's video
+   state). Upstream sent an audio-only accept, which the server refused with call ack error
+   431. `GroupCallState` gained `GroupJID`, and `ParseGroupInviteSnapshot` also reads
+   `group-jid` from `<offer>` when `<group_info>` lacks it. Candidate for upstreaming
+   (upstream issue #34).

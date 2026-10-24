@@ -827,7 +827,10 @@ object WaCore : Listener {
         video: Boolean,
     ) {
         Wake.inCall(true)
-        WaState.call.value = CallUi(callID, peer, incoming = true, phase = 2, video = video, remoteVideo = video)
+        WaState.call.value =
+            CallUi(callID, peer, incoming = true, phase = 2, video = video, remoteVideo = video).let { c ->
+                groupCalls[callID]?.let { c.withGroup(it) } ?: c
+            }
         CallLog.start(callID, peer, incoming = true, video = video)
         resolve(peer)
         ringtone = RingtoneManager.getRingtone(app, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.also { it.play() }
@@ -835,8 +838,9 @@ object WaCore : Listener {
             NotificationCompat
                 .Builder(app, CH_INCOMING)
                 .setSmallIcon(android.R.drawable.stat_sys_phone_call)
-                .setContentTitle(if (video) "Incoming WhatsApp video call" else "Incoming WhatsApp call")
-                .setContentText(MessageStore.title(normalizeJid(peer)))
+                .setContentTitle(
+                    "Incoming WhatsApp " + (if (groupCalls.containsKey(callID)) "group " else "") + if (video) "video call" else "call",
+                ).setContentText(callNotificationText(callID, peer))
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setOngoing(true)
@@ -844,6 +848,30 @@ object WaCore : Listener {
                 .setContentIntent(openApp())
                 .build()
         app.getSystemService(NotificationManager::class.java).notify(NOTIF_INCOMING, n)
+    }
+
+    /** Who's calling, for the notification: the person, or the group call's group or participants. */
+    private fun callNotificationText(
+        callID: String,
+        peer: String,
+    ): String {
+        val g = groupCalls[callID] ?: return MessageStore.title(normalizeJid(peer))
+        return groupCallTitle(g.group.takeIf { it.isNotEmpty() }?.let(MessageStore::title), g.members.map(MessageStore::title))
+    }
+
+    /** Group details reported before a call rings ([onGroupCall] comes first), by call ID. */
+    private val groupCalls = java.util.concurrent.ConcurrentHashMap<String, GroupCallInfo>()
+
+    override fun onGroupCall(
+        callID: String,
+        group: String,
+        members: String,
+        joined: String,
+    ) {
+        val info = GroupCallInfo(normalizeJid(group), members.jidList(), joined.jidList())
+        groupCalls[callID] = info
+        resolveAll(info.members)
+        WaState.call.update { c -> if (c?.id == callID) c.withGroup(info) else c }
     }
 
     override fun onCallReady(callID: String) {
@@ -871,6 +899,7 @@ object WaCore : Listener {
         reason: String,
     ) {
         Wake.inCall(false)
+        groupCalls.remove(callID)
         CallLog.ended(callID)
         stopRing()
         audio.stop()

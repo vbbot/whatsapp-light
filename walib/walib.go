@@ -42,6 +42,10 @@ type Listener interface {
 	OnConnected(jid string)
 	OnDisconnected()
 	OnIncomingCall(callID, peer string, video bool)
+	// OnGroupCall reports a group call's group (its chat, or "" for a call between chosen people)
+	// and its other participants: members, comma-separated with the caller first, and those of
+	// them in the call (joined). It comes before OnIncomingCall, and again as people join or leave.
+	OnGroupCall(callID, group, members, joined string)
 	OnCallReady(callID string)
 	OnCallState(callID string, phase int)
 	OnCallEnded(callID, reason string)
@@ -812,6 +816,9 @@ func (c *Client) current(id string) *meowcaller.Call {
 
 func (c *Client) onIncoming(call *meowcaller.Call) {
 	c.attach(call)
+	if _, ok := call.GroupState(); ok {
+		c.reportGroup(call)
+	}
 	c.l.OnIncomingCall(call.ID(), c.canonical(call.Peer(), nil).String(), call.IsVideo())
 }
 
