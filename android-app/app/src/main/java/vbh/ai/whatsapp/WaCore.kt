@@ -69,6 +69,7 @@ object WaCore : Listener {
     private fun connect() {
         thread(name = "wa-connect") {
             try {
+                connectedOnce = false
                 val c = Client(sessionDb().absolutePath, this)
                 c.setSpeaker(audio)
                 c.setVideoRenderer(video)
@@ -541,12 +542,21 @@ object WaCore : Listener {
             pairing = false
             History.linked()
         }
-        thread(name = "wa-merge") {
-            ChatIdentity.mergeDuplicates()
-            resolveAllChats()
+        // This runs again after every reconnect; the one-off work only needs the first.
+        if (!connectedOnce) {
+            connectedOnce = true
+            thread(name = "wa-merge") {
+                ChatIdentity.mergeDuplicates()
+                resolveAllChats()
+            }
+            loadContacts()
         }
-        loadContacts()
+        // Receipts skipped while offline, for the chat on screen.
+        MessageStore.openChat.value?.let { chat -> thread(name = "wa-receipts") { runCatching { sendReadReceipts(chat) } } }
     }
+
+    /** The current client has connected at least once (reset for each new client). */
+    @Volatile private var connectedOnce = false
 
     override fun onLoggedOut(reason: Long) {
         WaState.log("logged out by WhatsApp ($reason)")

@@ -36,6 +36,9 @@ import (
 // Listener receives events. Implemented in Kotlin; called from Go goroutines.
 type Listener interface {
 	OnQR(code string)
+	// OnConnected reports each time the connection is up: the first connect, and every automatic
+	// reconnect after a drop, or a stalled connection recovering. OnDisconnected reports it
+	// dropping or stalling.
 	OnConnected(jid string)
 	OnDisconnected()
 	OnIncomingCall(callID, peer string, video bool)
@@ -145,7 +148,10 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 		switch e := evt.(type) {
 		case *events.LoggedOut:
 			l.OnLoggedOut(int(e.Reason))
-		case *events.Disconnected:
+		case *events.Connected, *events.KeepAliveRestored:
+			// Handlers run on whatsmeow's event loop; don't block it with a send.
+			go c.connected()
+		case *events.Disconnected, *events.KeepAliveTimeout:
 			l.OnDisconnected()
 		case *events.Message:
 			c.handleMessage(e)
@@ -538,16 +544,26 @@ func (c *Client) Connect() error {
 	} else if err := c.wa.Connect(); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	if err := waitReady(ctx, c.wa, 3*time.Minute); err != nil {
-		return err
+	// OnConnected comes from the event handler (connected), for this and every later reconnect.
+	return waitReady(ctx, c.wa, 3*time.Minute)
+}
+
+// connected runs on every (re)connection: presence doesn't survive a reconnect, so announce it
+// again, then tell the app.
+func (c *Client) connected() {
+	if c.closed.Load() || c.wa.Store.ID == nil {
+		return
 	}
 	if c.wa.Store.PushName == "" {
 		c.wa.Store.PushName = "wa-android"
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	// Presence "available" is required for call signaling to be delivered.
-	_ = c.wa.SendPresence(ctx, types.PresenceAvailable)
+	if err := c.wa.SendPresence(ctx, types.PresenceAvailable); err != nil {
+		c.l.OnLog("presence: " + err.Error())
+	}
 	c.l.OnConnected(c.wa.Store.ID.String())
-	return nil
 }
 
 // Logout unlinks this device from the account (it disappears from Linked devices on the main

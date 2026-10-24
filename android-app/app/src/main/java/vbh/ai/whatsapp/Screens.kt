@@ -112,15 +112,35 @@ internal fun icon(
 
 // ---------------------------------------------------------------- home (tabs)
 
+/** How long the connection must stay down before the offline banner shows: reconnects usually take a second. */
+private const val OFFLINE_BANNER_DELAY_MS = 5_000L
+
+/** True once the connection has been down for [OFFLINE_BANNER_DELAY_MS]; false as soon as it's back. */
+@Composable
+internal fun rememberOffline(): Boolean {
+    val connected by WaState.connected.collectAsState()
+    var offline by remember { mutableStateOf(false) }
+    LaunchedEffect(connected) {
+        if (connected) {
+            offline = false
+        } else {
+            delay(OFFLINE_BANNER_DELAY_MS)
+            offline = true
+        }
+    }
+    return offline
+}
+
 /**
  * Home: a list-home screen with two destinations. The top bar carries the active destination as
  * context and settings on the right; the bottom bar holds both destinations plus the active tab's
  * primary action (new chat / new call).
  */
+
 @Composable
 fun HomeScreen() {
     val tab by Nav.tab.collectAsState()
-    val connected by WaState.connected.collectAsState()
+    val offline = rememberOffline()
     val error by WaState.error.collectAsState()
     ScreenColumn {
         LightTopBar(
@@ -129,7 +149,7 @@ fun HomeScreen() {
         )
         Box(Modifier.weight(1f)) {
             Column(Modifier.fillMaxSize()) {
-                if (!connected) Banner("Offline — reconnecting. Calls and sending are paused.")
+                if (offline) Banner("Offline — reconnecting. Calls and sending are paused.")
                 error?.let { Banner(it) }
                 Box(Modifier.weight(1f)) {
                     when (tab) {
