@@ -123,16 +123,21 @@ fun ThreadScreen(chat: String) {
     val context = LocalContext.current
     var jumpTo by remember { mutableStateOf<String?>(null) }
     var highlighted by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(jumpTo, msgs) {
+    // Waits until the original is loaded. Clears the target only after scrolling: changing it is
+    // what restarts (and so would cancel) this effect.
+    LaunchedEffect(jumpTo, msgs.size) {
         val target = jumpTo ?: return@LaunchedEffect
         val i = msgs.indexOfFirst { it.id == target }
         if (i < 0) return@LaunchedEffect
-        jumpTo = null
         // Reverse layout: index 0 is the bottom spacer, then newest first.
         listState.animateScrollToItem(msgs.size - i)
         highlighted = target
+        jumpTo = null
+    }
+    LaunchedEffect(highlighted) {
+        if (highlighted == null) return@LaunchedEffect
         delay(HIGHLIGHT_MS)
-        if (highlighted == target) highlighted = null
+        highlighted = null
     }
 
     fun openQuote(m: Msg) {

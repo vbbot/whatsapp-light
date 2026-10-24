@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.delete
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +37,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.thelightphone.lp3Keyboard.ui.LayoutOptions
 import com.thelightphone.lp3Keyboard.ui.SpecialKey
@@ -166,8 +169,12 @@ private fun MessageEditor(
         if (hapticsEnabled) ContextLightVibrator(context).click()
     }
     val callback = remember(state) { EditorKeyboardCallback(state) { currentOnHaptic() } }
+    // The keyboard's view model lives exactly as long as this editor. The activity's own store
+    // would keep the first one, still typing into the first editor's text, for every later one.
+    val store = remember { KeyboardStore() }
+    DisposableEffect(store) { onDispose { store.viewModelStore.clear() } }
     val keyboard: Lp3KeyboardViewModel<*> =
-        viewModel<EnQwertyLp3KeyboardViewModel<*>>(key = "MessageEditor", factory = keyboardFactory(callback))
+        viewModel<EnQwertyLp3KeyboardViewModel<*>>(viewModelStoreOwner = store, factory = keyboardFactory(callback))
     val colors = LightThemeTokens.colors
     val inputStyle = headingStyle()
     var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -255,6 +262,11 @@ private fun headingStyle(): androidx.compose.ui.text.TextStyle {
         lineHeight = t.lineHeight.scaled(),
         letterSpacing = t.letterSpacing.scaled(),
     )
+}
+
+/** Holds one editor's keyboard view model, cleared when the editor leaves the screen. */
+private class KeyboardStore : ViewModelStoreOwner {
+    override val viewModelStore = ViewModelStore()
 }
 
 private fun keyboardFactory(callback: Lp3RepeatableKeyboardCallback): ViewModelProvider.Factory =
