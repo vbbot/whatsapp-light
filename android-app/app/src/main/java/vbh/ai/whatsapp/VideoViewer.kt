@@ -56,6 +56,7 @@ import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LightTopBar
 import com.thelightphone.sdk.ui.LightTouchableProgressBar
 import com.thelightphone.sdk.ui.gridUnitsAsDp
+import com.thelightphone.sdk.ui.lightClickable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -423,27 +424,52 @@ private fun videoTexture(
             }
     }
 
+/** How many times a GIF in the thread plays through before it stops, as WhatsApp's do. */
+const val INLINE_GIF_PLAYS = 3
+
 /**
- * A GIF playing in the thread: muted and looping while it's on screen and the app is in front.
- * [modifier] gives it its size.
+ * A GIF in the thread: it plays [INLINE_GIF_PLAYS] times, muted, then stops on its last frame.
+ * Tapping a stopped GIF plays it again; tapping it while it plays calls [onOpen] (full screen).
+ * It pauses while the app is in the background. [modifier] gives it its size.
  */
 @Composable
 internal fun InlineGif(
     file: File,
     modifier: Modifier,
+    onOpen: () -> Unit,
 ) {
     val player = remember(file) { MediaPlayer() }
     var released by remember(file) { mutableStateOf(false) }
     var prepared by remember(file) { mutableStateOf(false) }
+    var playing by remember(file) { mutableStateOf(false) }
+    var plays by remember(file) { mutableIntStateOf(0) }
+
+    fun replay() {
+        if (released || !prepared) return
+        plays = 0
+        player.seekTo(0)
+        player.start()
+        playing = true
+    }
+
     DisposableEffect(player) {
         player.setOnPreparedListener {
             prepared = true
             it.setVolume(0f, 0f)
-            it.isLooping = true
-            it.start()
+            replay()
+        }
+        player.setOnCompletionListener {
+            plays++
+            if (plays < INLINE_GIF_PLAYS) {
+                it.seekTo(0)
+                it.start()
+            } else {
+                playing = false
+            }
         }
         player.setOnErrorListener { _, what, extra ->
             WaState.log("gif player error $what/$extra")
+            playing = false
             true
         }
         try {
@@ -461,13 +487,23 @@ internal fun InlineGif(
     DisposableEffect(lifecycle, player) {
         val observer =
             LifecycleEventObserver { _, event ->
-                if (released || !prepared) return@LifecycleEventObserver
+                if (released || !prepared || !playing) return@LifecycleEventObserver
                 if (event == Lifecycle.Event.ON_PAUSE && player.isPlaying) player.pause()
                 if (event == Lifecycle.Event.ON_RESUME && !player.isPlaying) player.start()
             }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    // See-through until its first frame, so the preview under it shows meanwhile.
-    AndroidView(factory = { ctx -> videoTexture(ctx, player) { released }.apply { isOpaque = false } }, modifier = modifier)
+    Box(modifier) {
+        // See-through until its first frame, so the preview under it shows meanwhile.
+        AndroidView(factory = { ctx ->
+            videoTexture(ctx, player) { released }.apply { isOpaque = false }
+        }, modifier = Modifier.fillMaxSize())
+        // Over the video, so taps reach Compose rather than the view.
+        Box(
+            Modifier.fillMaxSize().lightClickable(onClickLabel = if (playing) "Open GIF" else "Play GIF again") {
+                if (playing) onOpen() else replay()
+            },
+        )
+    }
 }

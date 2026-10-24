@@ -567,7 +567,8 @@ private fun MediaThumb(
     }
     // A GIF that's here plays in its place, over its preview until the first frame shows.
     val gif = remember(m.id, m.media) { Media.videoFile(m.id).takeIf { m.isGif && it.exists() } }
-    Box(Modifier.fillMaxWidth(0.7f).aspectRatio(aspect).then(open), contentAlignment = Alignment.Center) {
+    // A playing GIF handles its own taps (replay, or open).
+    Box(Modifier.fillMaxWidth(0.7f).aspectRatio(aspect).then(if (gif == null) open else Modifier), contentAlignment = Alignment.Center) {
         bmp?.let {
             Image(
                 bitmap = it,
@@ -576,7 +577,7 @@ private fun MediaThumb(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        gif?.let { InlineGif(it, Modifier.fillMaxSize()) }
+        gif?.let { InlineGif(it, Modifier.fillMaxSize(), onOpen) }
         if (m.isVideo && !m.isGif) {
             PlayBadge()
             // Its length on the picture, so it can't be read as the message's time.
