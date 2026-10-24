@@ -36,6 +36,9 @@ import (
 // Listener receives events. Implemented in Kotlin; called from Go goroutines.
 type Listener interface {
 	OnQR(code string)
+	// OnConnected reports each time the connection is up: the first connect, and every automatic
+	// reconnect after a drop, or a stalled connection recovering. OnDisconnected reports it
+	// dropping or stalling.
 	OnConnected(jid string)
 	OnDisconnected()
 	OnIncomingCall(callID, peer string, video bool)
@@ -79,6 +82,10 @@ type Listener interface {
 	// out, 403 main device gone, 406 banned or unknown). The session is deleted; call Close and
 	// start a new Client to link again.
 	OnLoggedOut(reason int)
+	// OnChatDeleted reports a chat deleted on another device or in the initial sync: messages
+	// at or before beforeMs (Unix ms) are gone, and so is everything up to the messages named in
+	// ids (comma-separated; the range's last messages). keepChat: only its messages were cleared.
+	OnChatDeleted(chat string, beforeMs int64, keepChat bool, ids string)
 	// OnHistory delivers a batch of past messages, chat names and calls from the main phone
 	// (at link time, or answering RequestOlderMessages) as JSON; see historyBatch.
 	OnHistory(json string)
@@ -147,7 +154,10 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 		switch e := evt.(type) {
 		case *events.LoggedOut:
 			l.OnLoggedOut(int(e.Reason))
-		case *events.Disconnected:
+		case *events.Connected, *events.KeepAliveRestored:
+			// Handlers run on whatsmeow's event loop; don't block it with a send.
+			go c.connected()
+		case *events.Disconnected, *events.KeepAliveTimeout:
 			l.OnDisconnected()
 		case *events.Message:
 			c.handleMessage(e)
@@ -159,6 +169,15 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 			c.handleMute(e)
 		case *events.Archive:
 			c.handleArchive(e)
+		case *events.AppState:
+			// Each incoming app-state change, by kind (e.g. "mute", "deleteChat"), for diagnosing sync.
+			if len(e.Index) > 0 {
+				l.OnLog("app state: " + e.Index[0])
+			}
+		case *events.DeleteChat:
+			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, false, e.FromFullSync)
+		case *events.ClearChat:
+			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, true, e.FromFullSync)
 		case *events.Pin:
 			c.handlePin(e)
 		}
@@ -544,16 +563,26 @@ func (c *Client) Connect() error {
 	} else if err := c.wa.Connect(); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	if err := waitReady(ctx, c.wa, 3*time.Minute); err != nil {
-		return err
+	// OnConnected comes from the event handler (connected), for this and every later reconnect.
+	return waitReady(ctx, c.wa, 3*time.Minute)
+}
+
+// connected runs on every (re)connection: presence doesn't survive a reconnect, so announce it
+// again, then tell the app.
+func (c *Client) connected() {
+	if c.closed.Load() || c.wa.Store.ID == nil {
+		return
 	}
 	if c.wa.Store.PushName == "" {
 		c.wa.Store.PushName = "wa-android"
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	// Presence "available" is required for call signaling to be delivered.
-	_ = c.wa.SendPresence(ctx, types.PresenceAvailable)
+	if err := c.wa.SendPresence(ctx, types.PresenceAvailable); err != nil {
+		c.l.OnLog("presence: " + err.Error())
+	}
 	c.l.OnConnected(c.wa.Store.ID.String())
-	return nil
 }
 
 // Logout unlinks this device from the account (it disappears from Linked devices on the main

@@ -39,6 +39,11 @@ sealed interface Screen {
     /** Confirms logging out (Settings). */
     data object LogOut : Screen
 
+    /** Confirms deleting one chat (from its options). */
+    data class DeleteChat(
+        val chat: String,
+    ) : Screen
+
     /** What a long press on a message offers (REPLY). */
     data class MessageMenu(
         val chat: String,
@@ -91,6 +96,23 @@ object Nav {
     /** Replaces the top screen (e.g. composer -> back to its thread is a plain pop). */
     fun replaceTop(s: Screen) {
         stack.value = stack.value.dropLast(1) + s
+        sync()
+    }
+
+    /** Removes every screen about [chat] (its thread, composer, options), e.g. once it's deleted. */
+    fun dropChat(chat: String) {
+        val kept =
+            stack.value.filterNot {
+                when (it) {
+                    is Screen.Thread -> it.chat == chat
+                    is Screen.Composer -> it.chat == chat
+                    is Screen.ChatOptions -> it.chat == chat
+                    is Screen.DeleteChat -> it.chat == chat
+                    is Screen.MessageMenu -> it.chat == chat
+                    else -> false
+                }
+            }
+        stack.value = kept.ifEmpty { listOf(Screen.Home) }
         sync()
     }
 

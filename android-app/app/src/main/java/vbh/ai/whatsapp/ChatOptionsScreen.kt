@@ -11,20 +11,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightBottomBar
 import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextVariant
+import com.thelightphone.sdk.ui.LightTopBar
 import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.lightClickable
 
 /**
  * One chat's options: its name and number centred, then a stack of full-width toggles (PIN /
- * UNPIN, MUTE / UNMUTE, ARCHIVE / UNARCHIVE), and a bottom bar with only ✕ to close. Each toggle shows the
+ * UNPIN, MUTE / UNMUTE, ARCHIVE / UNARCHIVE) and DELETE (which asks first), and a bottom bar with only ✕ to close. Each toggle shows the
  * current state and flips it here and on the user's other devices; the screen stays open so
  * the change is visible.
  */
@@ -75,6 +80,7 @@ fun ChatOptionsScreen(chat: String) {
             if (!state.archived) ToggleButton(if (state.pinned) "UNPIN" else "PIN") { WaCore.setPinned(chat, !state.pinned) }
             ToggleButton(if (muted) "UNMUTE" else "MUTE") { WaCore.setMuted(chat, !muted) }
             ToggleButton(if (state.archived) "UNARCHIVE" else "ARCHIVE") { WaCore.setArchived(chat, !state.archived) }
+            ToggleButton("DELETE") { Nav.push(Screen.DeleteChat(chat)) }
         }
         Spacer(Modifier.weight(5.5f))
         LightBottomBar(
@@ -98,5 +104,60 @@ internal fun ToggleButton(
         contentAlignment = Alignment.Center,
     ) {
         LightText(text = label, variant = LightTextVariant.Button)
+    }
+}
+
+/** Confirms deleting [chat]: the question, what goes, then DELETE. Afterwards its screens close. */
+@Composable
+fun DeleteChatScreen(chat: String) {
+    val title = rememberTitle(chat)
+    var busy by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf<String?>(null) }
+    ScreenColumn {
+        LightTopBar(leftButton = if (busy) null else backButton("chat options") { Nav.pop() })
+        failed?.let { Banner("Couldn't delete the chat ($it). Check the connection and try again.") }
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 2f.gridUnitsAsDp())
+                .padding(bottom = 4f.gridUnitsAsDp()),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                LightText(
+                    text = if (busy) "Deleting…" else "Delete chat with $title?",
+                    variant = LightTextVariant.Subheading,
+                    align = TextAlign.Center,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                LightText(
+                    text = "its messages and photos are deleted here and on your other devices",
+                    variant = LightTextVariant.Detail,
+                    lighten = true,
+                    align = TextAlign.Center,
+                    modifier = Modifier.padding(top = 1f.gridUnitsAsDp()),
+                )
+            }
+        }
+        LightBottomBar(
+            modifier = Modifier.navigationBarsPadding(),
+            items =
+                listOf(
+                    if (busy) {
+                        null
+                    } else {
+                        LightBarButton.Text(text = "DELETE", contentDescription = "Delete chat with $title", onClick = {
+                            busy = true
+                            failed = null
+                            WaCore.deleteChat(chat) { error ->
+                                busy = false
+                                if (error == null) Nav.dropChat(chat) else failed = error
+                            }
+                        })
+                    },
+                ),
+        )
     }
 }

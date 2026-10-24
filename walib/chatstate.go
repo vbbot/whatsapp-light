@@ -2,11 +2,14 @@ package walib
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/polymorfa/hypermeow/appstate"
 	"github.com/polymorfa/hypermeow/proto/waCommon"
+	"github.com/polymorfa/hypermeow/proto/waSyncAction"
 	"github.com/polymorfa/hypermeow/types"
 	"github.com/polymorfa/hypermeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -29,6 +32,41 @@ func (c *Client) handleMute(e *events.Mute) {
 
 func (c *Client) handleArchive(e *events.Archive) {
 	c.l.OnChatArchived(c.canonical(e.JID, nil).String(), e.Action.GetArchived())
+}
+
+// handleDeleteChat reports a chat deleted (or cleared, keeping the chat) on another device:
+// messages up to the end of the action's range go. The range also names its last messages by ID,
+// which the app matches too: our own sent messages are stored with the time they were sent here,
+// which can be a little after the server time the range ends at.
+func (c *Client) handleDeleteChat(jid types.JID, r *waSyncAction.SyncActionMessageRange, at time.Time, keepChat bool, fullSync bool) {
+	chat := c.canonical(jid, nil).String()
+	before := deletedBefore(r, at)
+	ids := rangeIDs(r)
+	c.l.OnLog(fmt.Sprintf("chat deleted elsewhere: %s up to %d (%d msgs named) keepChat=%v fullSync=%v", chat, before, len(ids), keepChat, fullSync))
+	c.l.OnChatDeleted(chat, before, keepChat, strings.Join(ids, ","))
+}
+
+// rangeIDs is the IDs of the messages an app-state range names (usually the chat's last one).
+func rangeIDs(r *waSyncAction.SyncActionMessageRange) []string {
+	var ids []string
+	for _, m := range r.GetMessages() {
+		if id := m.GetKey().GetID(); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// deletedBefore is the Unix ms up to which messages are deleted: the range's last message time
+// (seconds, so the whole second counts), else the time of the deletion.
+func deletedBefore(r *waSyncAction.SyncActionMessageRange, at time.Time) int64 {
+	if s := r.GetLastMessageTimestamp(); s > 0 {
+		return s*1000 + 999
+	}
+	if at.IsZero() {
+		return time.Now().UnixMilli()
+	}
+	return at.UnixMilli()
 }
 
 func (c *Client) handlePin(e *events.Pin) {
@@ -93,16 +131,34 @@ func (c *Client) SetChatArchived(chat string, archived bool, lastID, lastSender 
 	if err != nil {
 		return err
 	}
-	var key *waCommon.MessageKey
-	var ts time.Time
-	if lastID != "" {
-		key = &waCommon.MessageKey{RemoteJID: proto.String(jid.String()), FromMe: proto.Bool(lastFromMe), ID: proto.String(lastID)}
-		if jid.Server == types.GroupServer && !lastFromMe && lastSender != "" {
-			key.Participant = proto.String(lastSender)
-		}
-		ts = time.UnixMilli(lastTsMs)
-	}
+	ts, key := lastMessage(jid, lastID, lastSender, lastTsMs, lastFromMe)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return c.wa.SendAppState(ctx, appstate.BuildArchive(jid, archived, ts, key))
+}
+
+// DeleteChat deletes chat, with its media, on every linked device and the main phone. The last
+// message (as for SetChatArchived) marks how far the deletion goes: anything newer stays.
+func (c *Client) DeleteChat(chat, lastID, lastSender string, lastTsMs int64, lastFromMe bool) error {
+	jid, err := types.ParseJID(chat)
+	if err != nil {
+		return err
+	}
+	ts, key := lastMessage(jid, lastID, lastSender, lastTsMs, lastFromMe)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return c.wa.SendAppState(ctx, appstate.BuildDeleteChat(jid, ts, key, true))
+}
+
+// lastMessage is the newest message's time and key, which app-state changes to a chat carry so
+// other devices know which messages they cover. Empty lastID: no messages known (zero values).
+func lastMessage(jid types.JID, lastID, lastSender string, lastTsMs int64, lastFromMe bool) (time.Time, *waCommon.MessageKey) {
+	if lastID == "" {
+		return time.Time{}, nil
+	}
+	key := &waCommon.MessageKey{RemoteJID: proto.String(jid.String()), FromMe: proto.Bool(lastFromMe), ID: proto.String(lastID)}
+	if jid.Server == types.GroupServer && !lastFromMe && lastSender != "" {
+		key.Participant = proto.String(lastSender)
+	}
+	return time.UnixMilli(lastTsMs), key
 }
