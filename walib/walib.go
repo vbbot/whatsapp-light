@@ -80,6 +80,10 @@ type Listener interface {
 	// out, 403 main device gone, 406 banned or unknown). The session is deleted; call Close and
 	// start a new Client to link again.
 	OnLoggedOut(reason int)
+	// OnChatDeleted reports a chat deleted on another device or in the initial sync: messages
+	// at or before beforeMs (Unix ms) are gone, and so is everything up to the messages named in
+	// ids (comma-separated; the range's last messages). keepChat: only its messages were cleared.
+	OnChatDeleted(chat string, beforeMs int64, keepChat bool, ids string)
 	// OnHistory delivers a batch of past messages, chat names and calls from the main phone
 	// (at link time, or answering RequestOlderMessages) as JSON; see historyBatch.
 	OnHistory(json string)
@@ -163,6 +167,15 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 			c.handleMute(e)
 		case *events.Archive:
 			c.handleArchive(e)
+		case *events.AppState:
+			// Each incoming app-state change, by kind (e.g. "mute", "deleteChat"), for diagnosing sync.
+			if len(e.Index) > 0 {
+				l.OnLog("app state: " + e.Index[0])
+			}
+		case *events.DeleteChat:
+			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, false, e.FromFullSync)
+		case *events.ClearChat:
+			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, true, e.FromFullSync)
 		case *events.Pin:
 			c.handlePin(e)
 		}

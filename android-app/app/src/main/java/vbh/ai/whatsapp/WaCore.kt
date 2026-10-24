@@ -565,6 +565,20 @@ object WaCore : Listener {
         thread(name = "wa-relink") { relink(loggedOutNotice(reason.toInt())) }
     }
 
+    override fun onChatDeleted(
+        chat: String,
+        beforeMs: Long,
+        keepChat: Boolean,
+        ids: String,
+    ) {
+        // Up to the named messages too: ours are stored with this phone's send time, which can
+        // be just after the server time the range ends at.
+        val named = MessageStore.newestOf(chat, ids.split(',').filter { it.isNotBlank() })
+        removeChat(chat, maxOf(beforeMs, named ?: 0L), keepChat)
+        // Deleted while open: leave its screens.
+        if (!keepChat) Nav.dropChat(chat)
+    }
+
     override fun onDisconnected() {
         WaState.connected.value = false
         WaState.status.value = "disconnected, reconnecting…"
@@ -731,6 +745,40 @@ object WaCore : Listener {
         syncChatState("archive", revert = revert) {
             it.setChatArchived(chat, archived, last?.id.orEmpty(), last?.sender.orEmpty(), last?.ts ?: 0L, last?.fromMe ?: false)
         }
+    }
+
+    /**
+     * Deletes [chat] with its messages and photos, here and on every device. WhatsApp is told
+     * first; only once it accepts is anything removed here, so a failure leaves the chat intact.
+     */
+    fun deleteChat(
+        chat: String,
+        onDone: (error: String?) -> Unit,
+    ) = thread(name = "wa-delete-chat") {
+        try {
+            val cl = client ?: error("not connected")
+            val last = MessageStore.newest(chat)
+            cl.deleteChat(chat, last?.id.orEmpty(), last?.sender.orEmpty(), last?.ts ?: 0L, last?.fromMe ?: false)
+            removeChat(chat, Long.MAX_VALUE, keepChat = false)
+            onDone(null)
+        } catch (e: Exception) {
+            WaState.log("delete chat failed: ${e.message}")
+            onDone(e.message ?: "unknown error")
+        }
+    }
+
+    /** Removes [chat]'s messages up to [beforeMs] and their media files, and its notification. */
+    private fun removeChat(
+        chat: String,
+        beforeMs: Long,
+        keepChat: Boolean,
+    ) {
+        val left = MessageStore.count(chat)
+        val media = MessageStore.deleteChat(chat, beforeMs, keepChat)
+        WaState.log("deleted chat $chat up to $beforeMs: ${left - MessageStore.count(chat)} of $left messages")
+        val dir = mediaDir().canonicalPath + File.separator
+        media.map(::File).filter { it.canonicalPath.startsWith(dir) }.forEach { it.delete() }
+        clearNotification(chat)
     }
 
     /**
