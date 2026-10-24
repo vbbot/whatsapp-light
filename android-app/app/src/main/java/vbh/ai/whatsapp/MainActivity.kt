@@ -191,23 +191,81 @@ class MainActivity : ComponentActivity() {
         }
         holder.SaveableStateProvider(keys.last()) {
             when (val s = stack.last()) {
-                Screen.Home -> HomeScreen()
-                is Screen.Thread -> ThreadScreen(s.chat)
-                is Screen.Composer -> ComposerScreen(s.chat)
-                is Screen.Contacts -> ContactsScreen(s.purpose)
-                is Screen.Number -> NumberScreen(s.purpose)
-                Screen.Settings -> SettingsScreen()
-                is Screen.ChatOptions -> ChatOptionsScreen(s.chat)
-                Screen.Archived -> ArchivedScreen()
-                is Screen.CallType -> CallTypeScreen(s.chat)
-                is Screen.MediaViewer -> MediaViewerScreen(s.id, s.path, s.backTo)
-                is Screen.CallConfirm -> CallConfirmScreen(s.chat, s.video)
-                Screen.Permissions -> PermissionsScreen(firstRun = false) { Nav.pop() }
-                Screen.LogOut -> LogOutScreen()
-                is Screen.DeleteChat -> DeleteChatScreen(s.chat)
-                is Screen.MessageMenu -> MessageMenuScreen(s.chat, s.id)
-                is Screen.DeleteMessage -> DeleteMessageScreen(s.chat, s.id)
-                is Screen.ReactionPicker -> ReactionPickerScreen(s.chat, s.id)
+                Screen.Home -> {
+                    HomeScreen()
+                }
+
+                is Screen.Thread -> {
+                    ThreadScreen(s.chat)
+                }
+
+                is Screen.Composer -> {
+                    ComposerScreen(s.chat)
+                }
+
+                is Screen.Contacts -> {
+                    ContactsScreen(s.purpose)
+                }
+
+                is Screen.Number -> {
+                    NumberScreen(s.purpose)
+                }
+
+                Screen.Settings -> {
+                    SettingsScreen()
+                }
+
+                is Screen.ChatOptions -> {
+                    ChatOptionsScreen(s.chat)
+                }
+
+                Screen.Archived -> {
+                    ArchivedScreen()
+                }
+
+                is Screen.CallType -> {
+                    CallTypeScreen(s.chat)
+                }
+
+                is Screen.MediaViewer -> {
+                    if (s.video) {
+                        VideoViewerScreen(
+                            s.id,
+                            s.path,
+                            s.backTo,
+                        )
+                    } else {
+                        MediaViewerScreen(s.id, s.path, s.backTo)
+                    }
+                }
+
+                is Screen.CallConfirm -> {
+                    CallConfirmScreen(s.chat, s.video)
+                }
+
+                Screen.Permissions -> {
+                    PermissionsScreen(firstRun = false) { Nav.pop() }
+                }
+
+                Screen.LogOut -> {
+                    LogOutScreen()
+                }
+
+                is Screen.DeleteChat -> {
+                    DeleteChatScreen(s.chat)
+                }
+
+                is Screen.MessageMenu -> {
+                    MessageMenuScreen(s.chat, s.id)
+                }
+
+                is Screen.DeleteMessage -> {
+                    DeleteMessageScreen(s.chat, s.id)
+                }
+
+                is Screen.ReactionPicker -> {
+                    ReactionPickerScreen(s.chat, s.id)
+                }
             }
         }
     }

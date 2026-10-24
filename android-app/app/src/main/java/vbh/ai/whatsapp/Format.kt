@@ -60,6 +60,21 @@ fun formatDuration(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%02d:%02d".format(m, sec)
 }
 
+/** "0:42" / "1:02:03": a position or length in a video. */
+fun formatClock(ms: Long): String {
+    val s = (ms / 1000).coerceAtLeast(0)
+    val h = s / 3600
+    val m = (s % 3600) / 60
+    val sec = s % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+}
+
+/** A video's label in the thread: "Video · 0:42", or "Video" while its length isn't known. */
+fun videoLabel(seconds: Int): String = if (seconds > 0) "Video · ${formatClock(seconds * 1000L)}" else "Video"
+
+/** A video's length under its preview ("0:42"), or "" while it isn't known. */
+fun videoLength(seconds: Int): String = if (seconds > 0) formatClock(seconds * 1000L) else ""
+
 /** "+<digits>" for phone JIDs; "" for anything else (a LID is an internal ID, not a number). */
 fun displayNumber(jid: String): String {
     val user = jid.substringBefore('@').substringBefore(':')
