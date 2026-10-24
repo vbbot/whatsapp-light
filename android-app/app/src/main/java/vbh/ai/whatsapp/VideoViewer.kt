@@ -513,15 +513,4 @@ internal fun InlineGif(
 
 /** The round "GIF" mark over a GIF that isn't playing: tap to play it. */
 @Composable
-internal fun GifBadge() {
-    val colors = LightThemeTokens.colors
-    Box(
-        Modifier
-            .size(3.5f.gridUnitsAsDp())
-            .background(colors.background, CircleShape)
-            .border(1.dp, colors.content, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        LightText(text = "GIF", variant = LightTextVariant.Detail)
-    }
-}
+internal fun GifBadge() = RoundBadge { LightText(text = "GIF", variant = LightTextVariant.Detail) }
