@@ -325,7 +325,7 @@ private fun rememberArchivedReveal(
     }
 }
 
-/** One chat in a list: unread `*`, name, pin and muted markers, time. Tap opens it; long-press opens its options. */
+/** One chat in a list: unread `*`, name, community, pin and muted markers, time. Tap opens it; long-press opens its options. */
 @Composable
 private fun ChatRow(
     name: String,
@@ -360,6 +360,8 @@ private fun ChatRow(
                 LightText(text = name, variant = LightTextVariant.Heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()), verticalAlignment = Alignment.CenterVertically) {
+                // A community holds several chats: a list mark, where a pin or mute would sit.
+                if (community) LightIcon(LightIcons.LIST, size = MUTED_ICON_GU, contentDescription = "Community")
                 if (pinned) PinMarker()
                 if (muted) LightIcon(LightIcons.SPEAKER_MUTED, size = MUTED_ICON_GU, contentDescription = "Muted")
                 LightText(text = time, variant = LightTextVariant.Fine)
