@@ -31,6 +31,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -989,10 +990,11 @@ fun InCallScreen(
 // ---------------------------------------------------------------- search
 
 /**
- * One search for everything: people and groups whose name (or number) matches [query] first,
- * then the messages in any chat that contain it, newest first, each with the chat, when, and
- * the words around the match on one line (with who wrote it, in groups and for ours). Tapping a
- * person or group opens their chat; tapping a message opens its chat at it.
+ * One search for everything, in two tabs: Contacts, the people and groups whose name (or number)
+ * matches [query], and Messages, those in any chat that contain it, newest first, each with the
+ * chat, when, and the words around the match on one line (with who wrote it, in groups and for
+ * ours). It opens on Contacts when there are any. Tapping a person or group opens their chat;
+ * tapping a message opens its chat at it.
  */
 @Composable
 fun SearchResultsScreen(query: String) {
@@ -1020,19 +1022,29 @@ fun SearchResultsScreen(query: String) {
                     val who = if (m.fromMe || m.isGroup) Replies.authorName(if (m.fromMe) "me" else m.sender, m.chat) + ": " else ""
                     SearchResult(m.chat, m.id, MessageStore.title(m.chat), who + searchSnippet(m.searchText, query), m.ts)
                 }
-            people + messages
+            people to messages
         }
+    // Null until the first results: then Contacts if any matched, else Messages.
+    var showPeople by rememberSaveable(query) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(results != null) { if (results != null && showPeople == null) showPeople = results.first.isNotEmpty() }
     ScreenColumn {
         LightTopBar(
             leftButton = backButton("search") { Nav.pop() },
             center = LightTopBarCenter.Text("“$query”"),
         )
+        if (results != null) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 2f.gridUnitsAsDp())) {
+                SearchTab("Contacts", results.first.size, selected = showPeople == true, Modifier.weight(1f)) { showPeople = true }
+                SearchTab("Messages", results.second.size, selected = showPeople == false, Modifier.weight(1f)) { showPeople = false }
+            }
+        }
         Box(Modifier.weight(1f)) {
+            val shown = results?.let { if (showPeople == true) it.first else it.second }
             when {
-                results == null -> {}
+                shown == null || showPeople == null -> {}
 
-                results.isEmpty() -> {
-                    StatusText("Nothing found.")
+                shown.isEmpty() -> {
+                    StatusText(if (showPeople == true) "No contacts match." else "No messages match.")
                 }
 
                 else -> {
@@ -1042,7 +1054,7 @@ fun SearchResultsScreen(query: String) {
                         uniformItemHeightGridUnits = 6f,
                         listState = rememberLazyListState(),
                     ) {
-                        items(results, key = { it.messageId ?: "chat:${it.chat}" }) { r ->
+                        items(shown, key = { it.messageId ?: "chat:${it.chat}" }) { r ->
                             SearchRow(r) { Nav.push(Screen.Thread(r.chat, focus = r.messageId)) }
                         }
                     }
@@ -1050,6 +1062,34 @@ fun SearchResultsScreen(query: String) {
             }
         }
         Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
+    }
+}
+
+/** One of the results' two tabs: its name and count, underlined when it's the one shown. */
+@Composable
+private fun SearchTab(
+    label: String,
+    count: Int,
+    selected: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier
+            .height(4f.gridUnitsAsDp())
+            .lightClickable(onClickLabel = "Show $label", role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick)
+            .semantics { this.selected = selected },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        LightText(text = "$label $count", variant = LightTextVariant.Subheading, lighten = !selected)
+        Box(
+            Modifier
+                .padding(top = 0.25f.gridUnitsAsDp())
+                .width(5f.gridUnitsAsDp())
+                .height(0.1f.gridUnitsAsDp())
+                .then(if (selected) Modifier.background(LightThemeTokens.colors.content) else Modifier),
+        )
     }
 }
 
