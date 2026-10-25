@@ -432,6 +432,7 @@ class VideoEngine(
         peer.release()
         participants.values.forEach { it.release() }
         participants.clear()
+        lastPacketTurn.clear()
         WaState.groupVideo.value = emptyMap()
     }
 
@@ -458,9 +459,15 @@ class VideoEngine(
                 )
             }
         // Their packets may carry a counter-clockwise turn, as in 1:1 calls; usually in a group
-        // call they don't (-1), and the turn comes from their video state ([participantState]).
+        // call they don't (-1). Their video state's turn ([participantState]) wins when they've sent
+        // one: the two can disagree, and the state's is the one that's been right.
         val o = orientation.toInt()
-        if (o >= 0) {
+        if (o >= 0 && o != lastPacketTurn[participant]) {
+            lastPacketTurn[participant] = o
+            val tile = WaState.groupVideo.value[participant]
+            WaState.log("video in (${d.name}): packets say orientation $o, video state says ${tile?.stateTurns ?: "nothing"}")
+        }
+        if (o >= 0 && WaState.groupVideo.value[participant]?.stateTurns == null) {
             val turns = (4 - o) % 4
             if (WaState.groupVideo.value[participant]?.quarterTurns != turns) updateTile(participant) { it.copy(quarterTurns = turns) }
         }
@@ -474,9 +481,14 @@ class VideoEngine(
      */
     fun participantState(
         participant: String,
-        active: Boolean,
+        cameraOn: Boolean?,
         orientation: Int,
-    ) = updateTile(participant) { it.copy(quarterTurns = orientation.mod(4), cameraOn = active) }
+    ) = updateTile(participant) {
+        it.copy(quarterTurns = orientation.mod(4), stateTurns = orientation.mod(4), cameraOn = cameraOn ?: it.cameraOn)
+    }
+
+    /** The last orientation each participant's packets carried, to log when it changes. */
+    private val lastPacketTurn = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     private fun updateTile(
         participant: String,

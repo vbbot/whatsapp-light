@@ -11,7 +11,7 @@ import android.view.Surface
  * next keyframe.
  */
 class RemoteDecoder(
-    private val name: String,
+    val name: String,
     /** Fired (from the codec thread) the first time a frame is drawn after a (re)start. */
     private val onFirstShown: () -> Unit = {},
     /** The decoded frame size, when the decoder learns it. */
