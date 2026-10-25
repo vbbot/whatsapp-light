@@ -32,12 +32,17 @@ class CallActionReceiver : BroadcastReceiver() {
             DECLINE -> {
                 WaCore.reject()
             }
+
+            HANG_UP -> {
+                WaCore.hangup()
+            }
         }
     }
 
     companion object {
         const val ANSWER = "vbh.ai.whatsapp.ANSWER_CALL"
         const val DECLINE = "vbh.ai.whatsapp.DECLINE_CALL"
+        const val HANG_UP = "vbh.ai.whatsapp.HANG_UP_CALL"
         private const val EXTRA_CALL_ID = "callID"
 
         fun pending(

@@ -31,6 +31,9 @@ object WaCore : Listener {
     const val CH_MESSAGES = "messages"
     const val CH_MISSED = "missed"
     private const val NOTIF_INCOMING = 2
+
+    /** How long the answered-looking call notification stays before it's removed. */
+    private const val SETTLE_MS = 1_500L
     private const val OLDER_PAGE = 50
 
     /** A QR code was shown, so the next connection is a fresh link. */
@@ -725,10 +728,50 @@ object WaCore : Listener {
             }
         }
 
+    /** The call ringing now and its caller, for [settleWatchCall]. */
+    @Volatile private var ringing: Pair<String, androidx.core.app.Person>? = null
+
     private fun stopRing() {
         ringtone?.stop()
         ringtone = null
-        app.getSystemService(NotificationManager::class.java).cancel(NOTIF_INCOMING)
+        val r = ringing
+        ringing = null
+        if (r == null) {
+            app.getSystemService(NotificationManager::class.java).cancel(NOTIF_INCOMING)
+        } else {
+            settleWatchCall(r.first, r.second)
+        }
+    }
+
+    /**
+     * Takes a ringing call off a watch bridged by Gadgetbridge. Removing the notification alone
+     * leaves it there (Gadgetbridge loses track of which call ended). Gadgetbridge reads a call
+     * notification that drops to one button as answered and then clears that caller's call, so
+     * the notification briefly shows only Hang up, then goes.
+     */
+    private fun settleWatchCall(
+        callID: String,
+        caller: androidx.core.app.Person,
+    ) {
+        val nm = app.getSystemService(NotificationManager::class.java)
+        nm.notify(
+            NOTIF_INCOMING,
+            NotificationCompat
+                .Builder(app, CH_INCOMING)
+                .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+                .setContentTitle(caller.name)
+                .addPerson(caller)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+                .addAction(0, "Hang up", CallActionReceiver.pending(app, CallActionReceiver.HANG_UP, callID))
+                .build(),
+        )
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            // Unless another call has started ringing since.
+            if (ringing == null) nm.cancel(NOTIF_INCOMING)
+        }, SETTLE_MS)
     }
 
     // --- Listener (called from Go goroutines) ---
@@ -944,6 +987,7 @@ object WaCore : Listener {
                 .setContentIntent(openApp())
                 .build()
         app.getSystemService(NotificationManager::class.java).notify(NOTIF_INCOMING, n)
+        ringing = callID to caller
         showCallScreen()
     }
 
