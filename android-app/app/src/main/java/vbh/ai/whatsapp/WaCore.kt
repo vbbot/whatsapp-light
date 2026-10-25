@@ -746,6 +746,7 @@ object WaCore : Listener {
         WaState.status.value = "connected"
         // What was written while offline goes now.
         Outbox.flush()
+        checkCommunities()
         WaState.ownNumber.value = client?.ownNumber().orEmpty()
         // Just linked: the main phone now sends past chats, which takes a minute or two.
         if (pairing) {
@@ -1027,6 +1028,8 @@ object WaCore : Listener {
             ),
         )
         if (!isGroup) resolve(chat)
+        // A group joined since linking: find out whether it's in a community.
+        if (isGroup && MessageStore.communityKind(chat) == CommunityKind.UNKNOWN) checkCommunities()
         // Muted and archived chats stay quiet: the message is stored and shows as unread.
         val quiet = MessageStore.chatState(chat).quietAt(System.currentTimeMillis())
         if (!fromMe && !quiet && MessageStore.openChat.value != chat) {
@@ -1304,8 +1307,79 @@ object WaCore : Listener {
             // A batch can bring the mappings that join a person's two addresses.
             val merged = ChatIdentity.mergeDuplicates()
             resolveAll(batch.chats.keys.filterNot { it.endsWith("@g.us") } + merged)
+            // Communities named only by their groups still need a name.
+            if (!batch.onDemand) checkCommunities()
         } catch (e: Exception) {
             WaState.log("history import failed: ${e.message}")
+        }
+    }
+
+    override fun onCommunityLink(
+        group: String,
+        community: String,
+        announcements: Boolean,
+        name: String,
+    ) {
+        Wake.hold(2_000)
+        WaState.log("community link: ${if (community.isEmpty()) "group left its community" else "group joined a community"}")
+        MessageStore.setChatName(group, name)
+        MessageStore.setCommunity(group, community, if (announcements) CommunityKind.ANNOUNCEMENTS else CommunityKind.GROUP)
+        if (community.isNotEmpty()) checkCommunities()
+    }
+
+    @Volatile private var checkingCommunities = false
+
+    /** Groups and communities looked up this session, so a failing one isn't asked about again. */
+    private val communitiesTried: MutableSet<String> =
+        java.util.concurrent.ConcurrentHashMap
+            .newKeySet()
+
+    /**
+     * Looks up, one at a time, the groups nobody has said the community of (joined since
+     * linking), then the communities with no name yet (which the first may turn up). Safe to call
+     * often: one check runs at a time, and each group is asked about once a session.
+     */
+    private fun checkCommunities() {
+        synchronized(this) {
+            if (checkingCommunities) return
+            checkingCommunities = true
+        }
+        thread(name = "wa-communities", isDaemon = true) {
+            try {
+                val c = client ?: return@thread
+                while (true) {
+                    val todo = (MessageStore.uncheckedGroups() + MessageStore.unnamedCommunities()).filter { communitiesTried.add(it) }
+                    if (todo.isEmpty()) break
+                    for (group in todo) {
+                        if (!c.isConnected) return@thread
+                        lookUpCommunity(c, group)
+                        Thread.sleep(200)
+                    }
+                }
+            } finally {
+                checkingCommunities = false
+            }
+        }
+    }
+
+    private fun lookUpCommunity(
+        c: Client,
+        group: String,
+    ) {
+        try {
+            val o = org.json.JSONObject(c.groupCommunity(group))
+            MessageStore.setChatName(group, o.optString("name"))
+            val kind =
+                when {
+                    o.optBoolean("isCommunity") -> CommunityKind.COMMUNITY
+                    o.optBoolean("announcements") -> CommunityKind.ANNOUNCEMENTS
+                    else -> CommunityKind.GROUP
+                }
+            MessageStore.setCommunity(group, normalizeJid(o.optString("community")), kind)
+        } catch (e: Exception) {
+            // Left, or no longer allowed to see it: treat it as a plain group.
+            WaState.log("community check failed: ${e.message}")
+            if (MessageStore.communityKind(group) == CommunityKind.UNKNOWN) MessageStore.setCommunity(group, "", CommunityKind.GROUP)
         }
     }
 

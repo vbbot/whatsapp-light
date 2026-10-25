@@ -60,6 +60,11 @@ type historyChat struct {
 	MutedUntil int64 `json:"mutedUntil"`
 	// PinnedAt: 0 not pinned, else when it was pinned (Unix ms).
 	PinnedAt int64 `json:"pinnedAt"`
+	// Community is the community a group belongs to, or "". IsCommunity: the group is a
+	// community itself. Announcements: it is its community's announcements group.
+	Community     string `json:"community,omitempty"`
+	IsCommunity   bool   `json:"isCommunity,omitempty"`
+	Announcements bool   `json:"announcements,omitempty"`
 }
 
 type historyCall struct {
@@ -106,6 +111,10 @@ func (c *Client) handleHistory(e *events.HistorySync) {
 			Archived:   conv.GetArchived(),
 			MutedUntil: historyMutedUntil(conv.GetMuteEndTime()),
 			PinnedAt:   historyPinnedAt(conv.GetPinned()),
+
+			Community:     conv.GetParentGroupID(),
+			IsCommunity:   conv.GetIsParentGroup(),
+			Announcements: conv.GetParentGroupID() != "" && conv.GetIsDefaultSubgroup(),
 		})
 		for _, hm := range conv.GetMessages() {
 			if m, ok := c.historyMessage(chat, hm.GetMessage(), pushNames, mappings); ok {

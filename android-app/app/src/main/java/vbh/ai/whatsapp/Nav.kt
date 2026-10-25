@@ -83,6 +83,11 @@ sealed interface Screen {
         val chat: String,
     ) : Screen
 
+    /** A community's groups (its row in the chat list). */
+    data class Community(
+        val community: String,
+    ) : Screen
+
     /** The archived chats (pull down at the top of the chat list). */
     data object Archived : Screen
 

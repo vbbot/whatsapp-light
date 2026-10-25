@@ -162,4 +162,56 @@ class ChatStateTest {
         upgraded.close()
         MessageStore.open(db)
     }
+
+    private fun g(
+        id: String,
+        chat: String,
+        ts: Long,
+    ) = Msg(id, chat, "x@lid", "", "hi", ts, false, true)
+
+    @Test fun aCommunitysGroupsShareOneRow() {
+        MessageStore.addAll(
+            listOf(m("1", "a@lid", 10), g("2", "news@g.us", 20), g("3", "chat@g.us", 40), g("4", "solo@g.us", 30)),
+        )
+        MessageStore.setCommunity("news@g.us", "club@g.us", CommunityKind.ANNOUNCEMENTS)
+        MessageStore.setCommunity("chat@g.us", "club@g.us", CommunityKind.GROUP)
+        MessageStore.setCommunity("solo@g.us", "", CommunityKind.GROUP)
+        val rows = MessageStore.chats()
+        assertEquals(listOf("club@g.us", "solo@g.us", "a@lid"), rows.map { it.chat })
+        val club = rows.first()
+        assertTrue(club.isCommunity)
+        assertEquals("3", club.last.id)
+        assertTrue(club.unread)
+        // Its screen: announcements first, then the newest.
+        assertEquals(listOf("news@g.us", "chat@g.us"), MessageStore.communityGroups("club@g.us").map { it.chat })
+        // Without folding (search), the groups are separate.
+        assertEquals(4, MessageStore.chats(byCommunity = false).size)
+    }
+
+    @Test fun aMutedGroupDoesntMarkItsCommunityUnreadAndAPinnedOneStaysOut() {
+        MessageStore.addAll(listOf(g("1", "news@g.us", 20), g("2", "chat@g.us", 40)))
+        MessageStore.setCommunity("news@g.us", "club@g.us", CommunityKind.ANNOUNCEMENTS)
+        MessageStore.setCommunity("chat@g.us", "club@g.us", CommunityKind.GROUP)
+        MessageStore.markRead("news@g.us")
+        MessageStore.setMutedUntil("chat@g.us", MUTED_FOREVER)
+        assertFalse(MessageStore.chats().single().unread)
+        MessageStore.setPinnedAt("chat@g.us", 5)
+        val rows = MessageStore.chats()
+        assertEquals(listOf("chat@g.us", "club@g.us"), rows.map { it.chat })
+        assertEquals("1", rows[1].last.id)
+        // Archived groups leave it for Archived.
+        MessageStore.setArchived("news@g.us", true)
+        assertEquals(listOf("chat@g.us"), MessageStore.chats().map { it.chat })
+        assertEquals(listOf("news@g.us"), MessageStore.chats(archived = true).map { it.chat })
+    }
+
+    @Test fun groupsWithNoKnownCommunityAreLookedUp() {
+        MessageStore.addAll(listOf(g("1", "new@g.us", 10), m("2", "a@lid", 20), g("3", "chat@g.us", 30)))
+        MessageStore.setCommunity("chat@g.us", "club@g.us", CommunityKind.GROUP)
+        assertEquals(listOf("new@g.us"), MessageStore.uncheckedGroups())
+        assertEquals(listOf("club@g.us"), MessageStore.unnamedCommunities())
+        MessageStore.setChatName("club@g.us", "Club")
+        assertTrue(MessageStore.unnamedCommunities().isEmpty())
+        assertEquals(CommunityKind.GROUP, MessageStore.communityKind("chat@g.us"))
+    }
 }

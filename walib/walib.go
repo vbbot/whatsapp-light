@@ -107,6 +107,10 @@ type Listener interface {
 	// OnReaction reports someone's reaction to the message targetID: reactor is a chat JID or
 	// "me"; emoji "" means they removed it. timestampMs orders changes from the same person.
 	OnReaction(chat, targetID, reactor, emoji string, timestampMs int64)
+	// OnCommunityLink reports group added to community (or removed from one: community "").
+	// announcements: it is the community's announcements group; name: the group's name, when the
+	// change says.
+	OnCommunityLink(group, community string, announcements bool, name string)
 	// OnHistory delivers a batch of past messages, chat names and calls from the main phone
 	// (at link time, or answering RequestOlderMessages) as JSON; see historyBatch.
 	OnHistory(json string)
@@ -210,6 +214,8 @@ func NewClient(dbPath string, l Listener) (*Client, error) {
 			c.handleDeleteChat(e.JID, e.Action.GetMessageRange(), e.Timestamp, true, e.FromFullSync)
 		case *events.Pin:
 			c.handlePin(e)
+		case *events.GroupInfo:
+			c.handleGroupLink(e)
 		}
 	})
 	return c, nil

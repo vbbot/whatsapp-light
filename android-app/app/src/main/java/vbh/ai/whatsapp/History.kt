@@ -38,7 +38,21 @@ data class HistoryChat(
     val archived: Boolean = false,
     val mutedUntil: Long = 0,
     val pinnedAt: Long = 0,
+    /** The community a group belongs to, or "". */
+    val community: String = "",
+    /** The group is a community itself. */
+    val isCommunity: Boolean = false,
+    /** The group is its community's announcements group. */
+    val announcements: Boolean = false,
 )
+
+/** What a history chat is, as far as communities go ([CommunityKind]). */
+val HistoryChat.kind: Int get() =
+    when {
+        isCommunity -> CommunityKind.COMMUNITY
+        announcements -> CommunityKind.ANNOUNCEMENTS
+        else -> CommunityKind.GROUP
+    }
 
 /**
  * History sync: the past messages, chat names and calls the main phone sends after linking (and
@@ -96,6 +110,9 @@ object History {
                         it.optBoolean("archived"),
                         it.optLong("mutedUntil"),
                         it.optLong("pinnedAt"),
+                        normalizeJid(it.optString("community")),
+                        it.optBoolean("isCommunity"),
+                        it.optBoolean("announcements"),
                     )
             }
         val raw =
@@ -162,6 +179,8 @@ object History {
             }
             for ((chat, info) in batch.chats) {
                 MessageStore.setChatName(chat, info.name)
+                // History describes every group it sends: in a community or not.
+                if (chat.endsWith("@g.us")) MessageStore.setCommunity(chat, info.community, info.kind)
                 if (!batch.onDemand) {
                     MessageStore.markReadExceptNewest(chat, info.unread)
                     // History only turns these on: app-state events (which may come first) are the

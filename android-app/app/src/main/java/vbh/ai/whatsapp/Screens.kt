@@ -1010,7 +1010,7 @@ fun SearchResultsScreen(query: String) {
             val people =
                 (
                     knownPeople(contacts, calls, phones) +
-                        MessageStore.chats().filter { it.chat.endsWith("@g.us") }.map {
+                        MessageStore.chats(byCommunity = false).filter { it.chat.endsWith("@g.us") }.map {
                             Contact(it.chat, MessageStore.title(it.chat), "")
                         }
                 ).distinctBy { it.chat }

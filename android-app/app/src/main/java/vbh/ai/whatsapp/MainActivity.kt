@@ -231,6 +231,10 @@ class MainActivity : ComponentActivity() {
                     ChatOptionsScreen(s.chat)
                 }
 
+                is Screen.Community -> {
+                    CommunityScreen(s.community)
+                }
+
                 Screen.Archived -> {
                     ArchivedScreen()
                 }

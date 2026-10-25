@@ -63,10 +63,11 @@ class ChatDb(
         // name: chat name from history sync (groups, saved contacts), if any.
         // archived: kept out of the chat list. muted_until: 0 not muted, -1 until unmuted, else Unix ms.
         // pinned_at: 0 not pinned, else when it was pinned (Unix ms).
+        // community: the community a group belongs to, or ''; community_kind: see [CommunityKind].
         db.execSQL(
             "CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '', " +
                 "archived INTEGER NOT NULL DEFAULT 0, muted_until INTEGER NOT NULL DEFAULT 0, pinned_at INTEGER NOT NULL DEFAULT 0, " +
-                "reacted_at INTEGER NOT NULL DEFAULT 0)",
+                "reacted_at INTEGER NOT NULL DEFAULT 0, community TEXT NOT NULL DEFAULT '', community_kind INTEGER NOT NULL DEFAULT 0)",
         )
         createReactions(db)
     }
@@ -108,11 +109,16 @@ class ChatDb(
         if (oldVersion < 8) db.execSQL("ALTER TABLE messages ADD COLUMN edited_at INTEGER NOT NULL DEFAULT 0")
         // 9: a group call's other participants.
         if (oldVersion < 9) db.execSQL("ALTER TABLE calls ADD COLUMN members TEXT NOT NULL DEFAULT ''")
+        // 10: which community a group belongs to.
+        if (oldVersion < 10) {
+            db.execSQL("ALTER TABLE chats ADD COLUMN community TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE chats ADD COLUMN community_kind INTEGER NOT NULL DEFAULT 0")
+        }
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 9
+        const val VERSION = 10
 
         @Volatile private var shared: ChatDb? = null
 
