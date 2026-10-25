@@ -205,9 +205,7 @@ fun ThreadScreen(chat: String) {
             items =
                 listOf(
                     icon(LightIcons.CALL, "Call $title") { Nav.push(Screen.CallType(chat)) },
-                    icon(LightIcons.ADD, "Send a photo or video to $title") {
-                        MediaPicker.pick { uri -> if (uri != null) WaCore.sendMedia(chat, uri) }
-                    },
+                    icon(LightIcons.ADD, "Send a photo, video or voice message to $title") { Nav.push(Screen.Attach(chat)) },
                     icon(LightIcons.COMPOSE_MESSAGE, "Write a message to $title") { Nav.push(Screen.Composer(chat)) },
                 ),
         )
@@ -435,6 +433,8 @@ private fun MessageBody(
         )
     } else if (m.isSticker) {
         Sticker(m)
+    } else if (m.isVoice) {
+        VoiceMessage(m)
     } else if (m.hasPicture || m.isVideo) {
         val open = { Nav.push(Screen.MediaViewer(m.id, m.media, chatTitle, video = m.isVideo, gif = m.isGif)) }
         // Media is the one place colour is allowed: shown as-is, tap for full screen.

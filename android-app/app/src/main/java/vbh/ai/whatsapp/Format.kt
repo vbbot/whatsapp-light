@@ -72,6 +72,9 @@ fun formatClock(ms: Long): String {
 /** A video's label in the thread: "Video · 0:42", or "Video" while its length isn't known. */
 fun videoLabel(seconds: Int): String = if (seconds > 0) "Video · ${formatClock(seconds * 1000L)}" else "Video"
 
+/** A voice message's line in the thread: "Voice message · 0:12", or without the length while it isn't known. */
+fun voiceLabel(seconds: Int): String = if (seconds > 0) "Voice message · ${formatClock(seconds * 1000L)}" else "Voice message"
+
 /** A video's length under its preview ("0:42"), or "" while it isn't known. */
 fun videoLength(seconds: Int): String = if (seconds > 0) formatClock(seconds * 1000L) else ""
 

@@ -88,6 +88,16 @@ sealed interface Screen {
         val gif: Boolean = false,
     ) : Screen
 
+    /** What to send to [chat] from the attach button: a photo or video, or a voice message. */
+    data class Attach(
+        val chat: String,
+    ) : Screen
+
+    /** Recording a voice message for [chat]. */
+    data class VoiceRecord(
+        val chat: String,
+    ) : Screen
+
     /**
      * Choose voice or video before calling [chat]: a person, a group chat, or with [members], the
      * people on a call between chosen people (called back from the call log).

@@ -47,7 +47,7 @@ data class Msg(
     val isText: Boolean get() = !isDeleted && MEDIA_PLACEHOLDERS.none { text.startsWith(it) }
 
     /** A photo we only have the small embedded preview of, or a sticker not downloaded yet. */
-    val needsFullPhoto: Boolean get() = !isVideo && mediaRef.isNotEmpty() && (media.isEmpty() || isThumbnailFile(media))
+    val needsFullPhoto: Boolean get() = !isVideo && !isVoice && mediaRef.isNotEmpty() && (media.isEmpty() || isThumbnailFile(media))
 
     /**
      * Shown as a picture: there's a file, or the photo can be fetched. History photos often
@@ -57,6 +57,9 @@ data class Msg(
 
     /** A video, or a GIF (which WhatsApp sends as a short video). */
     val isVideo: Boolean get() = text.startsWith("[video]") || isGif
+
+    /** A voice message: played in the thread ([VoicePlayer]). */
+    val isVoice: Boolean get() = text.startsWith("[voice message]")
 
     /** A GIF: played muted on a loop. */
     val isGif: Boolean get() = text.startsWith("[gif]")

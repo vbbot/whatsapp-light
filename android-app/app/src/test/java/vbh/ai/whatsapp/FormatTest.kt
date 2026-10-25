@@ -51,6 +51,8 @@ class FormatTest {
         assertEquals("1:02:03", formatClock(3_723_000))
         assertEquals("Video · 0:42", videoLabel(42))
         assertEquals("Video", videoLabel(0))
+        assertEquals("Voice message · 0:12", voiceLabel(12))
+        assertEquals("Voice message", voiceLabel(0))
         assertEquals("0:42", videoLength(42))
         assertEquals("", videoLength(0))
     }

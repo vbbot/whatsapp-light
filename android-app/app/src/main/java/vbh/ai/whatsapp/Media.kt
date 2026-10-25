@@ -41,6 +41,9 @@ object Media {
     /** Downloads a message's video to [videoFile]; set by [WaCore] when the client starts. */
     @Volatile var videoDownloader: ((Msg) -> String)? = null
 
+    /** Downloads a voice message to [audioFile]; set by [WaCore] when the client starts. */
+    @Volatile var audioDownloader: ((Msg) -> String)? = null
+
     /** A video's file size from its download info (0 if not known); set by [WaCore]. */
     @Volatile var videoBytes: ((Msg) -> Long)? = null
 
@@ -74,6 +77,12 @@ object Media {
     /** The local copy of message [id]'s video: downloaded, or kept when we sent it. */
     fun videoFile(id: String): File = File(dir ?: File(""), mediaFileName(id) + ".mp4")
 
+    /** The local copy of message [id]'s voice message: downloaded, or recorded here. */
+    fun audioFile(id: String): File = File(dir ?: File(""), mediaFileName(id) + ".ogg")
+
+    /** A voice message that can be downloaded and isn't here yet. */
+    fun needsAudio(m: Msg): Boolean = m.isVoice && m.mediaRef.isNotEmpty() && !audioFile(m.id).exists()
+
     /** A video that can be downloaded and isn't here yet. */
     fun needsVideo(m: Msg): Boolean = m.isVideo && m.mediaRef.isNotEmpty() && !videoFile(m.id).exists()
 
@@ -88,7 +97,7 @@ object Media {
     }
 
     fun opened(m: Msg) {
-        if (!m.needsFullPhoto && !needsVideo(m)) return
+        if (!m.needsFullPhoto && !needsVideo(m) && !needsAudio(m)) return
         attempted.add(m.id)
         submit(m.id, opened = true)
     }
@@ -108,6 +117,10 @@ object Media {
             preview(m)
             return
         }
+        if (needsAudio(m)) {
+            fetchAudio(job, m)
+            return
+        }
         val video = needsVideo(m)
         if (!video && !m.needsFullPhoto) return
         if (!job.opened && states.value[job.id] is State.Failed) return
@@ -123,6 +136,28 @@ object Media {
             states.update { it - job.id }
         } catch (e: Exception) {
             WaState.log("${if (video) "video" else "photo"} ${job.id}: ${e.message}")
+            states.update { it + (job.id to State.Failed(e.message ?: "download failed")) }
+        }
+    }
+
+    /** Voice messages are fetched only when played; [VoicePlayer] starts it once it's here. */
+    private fun fetchAudio(
+        job: Job,
+        m: Msg,
+    ) {
+        if (!job.opened && states.value[job.id] is State.Failed) return
+        val download = audioDownloader
+        if (download == null) {
+            states.update { it + (job.id to State.Failed("not connected")) }
+            return
+        }
+        states.update { it + (job.id to State.Loading) }
+        try {
+            download(m)
+            states.update { it - job.id }
+            VoicePlayer.downloaded(m.id)
+        } catch (e: Exception) {
+            WaState.log("voice message ${job.id}: ${e.message}")
             states.update { it + (job.id to State.Failed(e.message ?: "download failed")) }
         }
     }

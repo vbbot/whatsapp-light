@@ -85,7 +85,7 @@ internal fun rememberVideoSeconds(m: Msg): Int {
     return state.value
 }
 
-private fun fileSeconds(f: File): Int {
+internal fun fileSeconds(f: File): Int {
     if (!f.exists()) return 0
     val mmr = MediaMetadataRetriever()
     return try {

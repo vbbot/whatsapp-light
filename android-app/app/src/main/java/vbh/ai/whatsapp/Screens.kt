@@ -548,6 +548,26 @@ private fun ContactRow(
 
 // ---------------------------------------------------------------- call type / confirm
 
+/** The attach button's choice: a photo or video from the gallery, or a voice message recorded now. */
+@Composable
+fun AttachScreen(chat: String) {
+    val title = rememberTitle(chat)
+    ScreenColumn {
+        LightTopBar(
+            leftButton = backButton(title) { Nav.pop() },
+            center = LightTopBarCenter.Text("Send"),
+        )
+        Column(Modifier.weight(1f).fillMaxWidth()) {
+            ContactRow(name = "Photo or video", subtitle = "from your gallery") {
+                Nav.pop()
+                MediaPicker.pick { uri -> if (uri != null) WaCore.sendMedia(chat, uri) }
+            }
+            ContactRow(name = "Voice message", subtitle = "record it now") { Nav.replaceTop(Screen.VoiceRecord(chat)) }
+        }
+        Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
+    }
+}
+
 /** Who a call goes to, by name: [chat]'s title, or for a call between chosen people their names. */
 @Composable
 private fun rememberCallTargetTitle(

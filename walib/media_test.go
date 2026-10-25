@@ -111,3 +111,33 @@ func TestStickerExtTellsLottieZipsFromWebP(t *testing.T) {
 		t.Errorf("webp = %q", got)
 	}
 }
+
+func TestMediaRefOfVoiceMessage(t *testing.T) {
+	msg := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+		DirectPath:  proto.String("/v/t62/ptt"),
+		MediaKey:    []byte{6, 7, 8},
+		Seconds:     proto.Uint32(12),
+		PTT:         proto.Bool(true),
+		ContextInfo: &waE2E.ContextInfo{StanzaID: proto.String("quoted")},
+	}}
+	ref := mediaRef(msg)
+	au, err := audioOfRef(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if au.GetDirectPath() != "/v/t62/ptt" || len(au.GetMediaKey()) != 3 {
+		t.Errorf("download info lost: %v", au)
+	}
+	if au.ContextInfo != nil {
+		t.Error("the reply context should be left out")
+	}
+	if got := AudioSeconds(ref); got != 12 {
+		t.Errorf("AudioSeconds = %d, want 12", got)
+	}
+	if AudioSeconds("") != 0 {
+		t.Error("unknown length should be 0")
+	}
+	if mediaRef(&waE2E.Message{AudioMessage: &waE2E.AudioMessage{}}) != "" {
+		t.Error("a voice message with nowhere to download from should have no ref")
+	}
+}
