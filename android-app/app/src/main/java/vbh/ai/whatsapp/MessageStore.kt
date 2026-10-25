@@ -148,8 +148,29 @@ data class ChatSummary(
     val muted: Boolean = false,
     /** When the chat was pinned (Unix ms), or 0. */
     val pinnedAt: Long = 0,
+    /** The community this group belongs to (or is), or "". */
+    val community: String = "",
+    /** The community's announcements group. */
+    val announcements: Boolean = false,
+    /** A community's row in the chat list, standing for its groups: [chat] is the community. */
+    val isCommunity: Boolean = false,
 ) {
     val pinned: Boolean get() = pinnedAt > 0
+}
+
+/** What a chat is, as far as communities go (chats.community_kind). */
+object CommunityKind {
+    /** Not known yet: a group history didn't describe, to look up ([MessageStore.uncheckedGroups]). */
+    const val UNKNOWN = 0
+
+    /** A group (in a community or not, as its community says), or not a group. */
+    const val GROUP = 1
+
+    /** A community itself: the parent of its groups. */
+    const val COMMUNITY = 2
+
+    /** A community's announcements group. */
+    const val ANNOUNCEMENTS = 3
 }
 
 /** Chat list order: pinned chats first, most recently pinned first, then by latest message. */
@@ -714,7 +735,10 @@ object MessageStore {
      * The chat list, ordered by most recent message, with each chat's newest message, unread and
      * muted state: the main list, or with [archived] the archived chats.
      */
-    fun chats(archived: Boolean = false): List<ChatSummary> {
+    fun chats(
+        archived: Boolean = false,
+        byCommunity: Boolean = true,
+    ): List<ChatSummary> {
         val d = db ?: return emptyList()
         val now = System.currentTimeMillis()
         val stored =
@@ -722,6 +746,7 @@ object MessageStore {
                 .rawQuery(
                     """
                     SELECT m.*, IFNULL(c.muted_until, 0) AS chat_muted_until, IFNULL(c.pinned_at, 0) AS chat_pinned_at,
+                      IFNULL(c.community, '') AS chat_community, IFNULL(c.community_kind, 0) AS chat_community_kind,
                       (EXISTS(SELECT 1 FROM messages u WHERE u.chat = m.chat AND u.from_me = 0
                               AND u.ts > IFNULL(c.last_read, 0))
                        OR IFNULL(c.reacted_at, 0) > IFNULL(c.last_read, 0)) AS unread
@@ -734,18 +759,88 @@ object MessageStore {
                     // Inlined, not bound: a bound "0" is text, which never equals the integer 0.
                     null,
                 ).readAll {
+                    val chat = it.getString(it.getColumnIndexOrThrow("chat"))
+                    val kind = it.getInt(it.getColumnIndexOrThrow("chat_community_kind"))
                     ChatSummary(
-                        it.getString(it.getColumnIndexOrThrow("chat")),
+                        chat,
                         ChatDb.msg(it),
                         it.getInt(it.getColumnIndexOrThrow("unread")) == 1,
                         muted = ChatState(mutedUntil = it.getLong(it.getColumnIndexOrThrow("chat_muted_until"))).mutedAt(now),
                         pinnedAt = it.getLong(it.getColumnIndexOrThrow("chat_pinned_at")),
+                        community = if (kind == CommunityKind.COMMUNITY) chat else it.getString(it.getColumnIndexOrThrow("chat_community")),
+                        announcements = kind == CommunityKind.ANNOUNCEMENTS,
                     )
                 }
                 // Two messages with the same newest timestamp: keep one.
                 .distinctBy { it.chat }
-        return stored
+        return if (byCommunity && !archived) foldCommunities(stored) else stored
     }
+
+    /**
+     * One row per community in place of its groups: its newest message and time, unread when an
+     * unmuted group in it is. A pinned group stays out of it, in its own row.
+     */
+    internal fun foldCommunities(chats: List<ChatSummary>): List<ChatSummary> {
+        val (grouped, rest) = chats.partition { it.community.isNotEmpty() && !it.pinned }
+        if (grouped.isEmpty()) return chats
+        val rows =
+            grouped.groupBy { it.community }.map { (community, groups) ->
+                ChatSummary(
+                    community,
+                    groups.maxBy { it.last.ts }.last,
+                    unread = groups.any { it.unread && !it.muted },
+                    isCommunity = true,
+                )
+            }
+        return (rest + rows).sortedWith(listOrder)
+    }
+
+    /** A community's groups (not archived): its announcements group first, then the newest. */
+    fun communityGroups(community: String): List<ChatSummary> =
+        chats(byCommunity = false)
+            .filter { it.community == community }
+            .sortedWith(compareByDescending<ChatSummary> { it.announcements }.thenByDescending { it.last.ts })
+
+    /** Records which community [chat] belongs to ("" for none) and what it is ([CommunityKind]). */
+    @Synchronized
+    fun setCommunity(
+        chat: String,
+        community: String,
+        kind: Int,
+    ) {
+        val d = db ?: return
+        d.execSQL(
+            "INSERT INTO chats(chat, community, community_kind) VALUES(?, ?, ?) " +
+                "ON CONFLICT(chat) DO UPDATE SET community = excluded.community, community_kind = excluded.community_kind",
+            arrayOf<Any>(chat, community, kind),
+        )
+        changed()
+    }
+
+    /** What [chat] is, as far as communities go ([CommunityKind]). */
+    fun communityKind(chat: String): Int =
+        db?.rawQuery("SELECT community_kind FROM chats WHERE chat = ?", arrayOf(chat))?.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+            ?: CommunityKind.UNKNOWN
+
+    /** Groups with messages whose community nobody has said yet: to look up. */
+    fun uncheckedGroups(): List<String> =
+        db
+            ?.rawQuery(
+                "SELECT DISTINCT m.chat FROM messages m LEFT JOIN chats c ON c.chat = m.chat " +
+                    "WHERE m.chat LIKE '%@g.us' AND IFNULL(c.community_kind, 0) = 0",
+                null,
+            )?.readAll { it.getString(0) }
+            .orEmpty()
+
+    /** Communities their groups name that have no name here yet: to look up. */
+    fun unnamedCommunities(): List<String> =
+        db
+            ?.rawQuery(
+                "SELECT DISTINCT community FROM chats WHERE community != '' " +
+                    "AND community NOT IN (SELECT chat FROM chats WHERE name != '')",
+                null,
+            )?.readAll { it.getString(0) }
+            .orEmpty()
 
     /** How many chats with messages are archived (whether to offer the pull-down Archived row). */
     fun archivedCount(): Int =

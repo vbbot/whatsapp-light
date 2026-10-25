@@ -120,6 +120,39 @@ internal fun ChatList() {
     }
 }
 
+/**
+ * A community's groups, from its row in the chat list: its announcements group first, then the
+ * others newest first. Each is a normal chat row (long-press for its options).
+ */
+@Composable
+fun CommunityScreen(community: String) {
+    val changes by MessageStore.changes.collectAsState()
+    val names by MessageStore.names.collectAsState()
+    val title = rememberTitle(community)
+    val rows =
+        rememberQuery(community, changes, names) { MessageStore.communityGroups(community).map { it to MessageStore.title(it.chat) } }
+    ScreenColumn {
+        LightTopBar(
+            leftButton = backButton("messages") { Nav.pop() },
+            center = LightTopBarCenter.Text(title),
+        )
+        Box(Modifier.weight(1f)) {
+            when {
+                rows == null -> {}
+
+                rows.isEmpty() -> {
+                    StatusText("No groups of this community have messages here.")
+                }
+
+                else -> {
+                    ChatRows(rows, rememberLazyListState(), archivedCount = 0)
+                }
+            }
+        }
+        Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
+    }
+}
+
 /** Archived chats, opened from the chat list's pull-down row. */
 @Composable
 fun ArchivedScreen() {
@@ -172,8 +205,10 @@ private fun ChatRows(
                     unread = summary.unread,
                     muted = summary.muted,
                     pinned = summary.pinned,
-                    onOpen = { Nav.push(Screen.Thread(summary.chat)) },
-                    onOptions = { Nav.push(Screen.ChatOptions(summary.chat)) },
+                    community = summary.isCommunity,
+                    onOpen = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.Thread(summary.chat)) },
+                    // A community has no options of its own: its groups each have theirs.
+                    onOptions = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.ChatOptions(summary.chat)) },
                 )
             }
         }
@@ -298,6 +333,7 @@ private fun ChatRow(
     unread: Boolean,
     muted: Boolean,
     pinned: Boolean,
+    community: Boolean = false,
     onOpen: () -> Unit,
     onOptions: () -> Unit,
 ) {
@@ -305,7 +341,7 @@ private fun ChatRow(
         Modifier
             .fillMaxWidth()
             .lightPressable(
-                onTapLabel = "Open chat with $name",
+                onTapLabel = if (community) "Open community $name" else "Open chat with $name",
                 onTap = onOpen,
                 onLongPressLabel = "Options for $name",
                 onLongPress = onOptions,

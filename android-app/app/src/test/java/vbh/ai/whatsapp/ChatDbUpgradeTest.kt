@@ -33,6 +33,7 @@ class ChatDbUpgradeTest {
         val db = SQLiteDatabase.create(null)
         db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, text TEXT NOT NULL)")
         db.execSQL("CREATE TABLE calls (id TEXT PRIMARY KEY, peer TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY)")
         ChatDb(
             androidx.test.core.app.ApplicationProvider
                 .getApplicationContext(),
@@ -44,11 +45,24 @@ class ChatDbUpgradeTest {
     @Test fun aVersion8DatabaseGainsCallMembers() {
         val db = SQLiteDatabase.create(null)
         db.execSQL("CREATE TABLE calls (id TEXT PRIMARY KEY, peer TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY)")
         ChatDb(
             androidx.test.core.app.ApplicationProvider
                 .getApplicationContext(),
             null,
         ).onUpgrade(db, 8, ChatDb.VERSION)
         assertTrue("members" in columns(db, "calls"))
+    }
+
+    @Test fun aVersion9DatabaseGainsCommunities() {
+        val db = SQLiteDatabase.create(null)
+        db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '')")
+        ChatDb(
+            androidx.test.core.app.ApplicationProvider
+                .getApplicationContext(),
+            null,
+        ).onUpgrade(db, 9, ChatDb.VERSION)
+        assertTrue("community" in columns(db, "chats"))
+        assertTrue("community_kind" in columns(db, "chats"))
     }
 }
