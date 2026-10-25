@@ -49,3 +49,12 @@
    extension bytes, which are unencrypted header metadata). Patch 6's note that group video
    packets carry no orientation was wrong: they do, and it accounts for the sender's camera,
    which the `<video>` stanza's orientation doesn't.
+
+8. **Group media start race and the first keyframe.** `runMedia` (`engine_media.go`) waits up to
+   5 s for the group update that carries the relay snapshot. The receive roster is applied
+   before that update is stored, so media could start in between and end immediately ("group
+   media started without an authoritative relay snapshot"), leaving a group call with no media
+   at all. Once the video sender is installed, the call also asks for a keyframe
+   (`requestVideoKeyframe`): frames sent before media was up, including the camera's first
+   IDR, are dropped, and the sender waits for an IDR, so without the request our video stayed
+   blank to the others until the encoder's next scheduled keyframe or a peer's PLI.

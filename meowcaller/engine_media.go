@@ -187,6 +187,9 @@ func (e *engine) connectAndAllocate(ctx context.Context, rd *relayData, streamSs
 	return ch, allocate, nil
 }
 
+// groupRelaySnapshotWait is how long group media waits for the relay snapshot (wa-poc patch).
+const groupRelaySnapshotWait = 5 * time.Second
+
 // runMedia runs the per-frame media loop over the relay DataChannel: the Player's frames
 // (or silence) → MLow → E2E-SRTP protect → DataChannel, and DataChannel → classify →
 // unprotect → MLow decode → the Call's sink. A 1 Hz allocate+ping keepalive holds the
@@ -689,6 +692,11 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		m.appDataTx = appSender
 	}
 	e.mu.Unlock()
+	// wa-poc patch: frames sent before this were dropped, and the sender waits for an IDR; ask
+	// the encoder for one now rather than at its next scheduled keyframe.
+	if call != nil {
+		call.requestVideoKeyframe()
+	}
 	defer func() {
 		appSender.close()
 		vsender.mu.Lock()
@@ -705,16 +713,30 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	var audioReception rtp.RtcpReceptionStatsSet
 	var videoReception rtp.RtcpReceptionStatsSet
 	if groupMode.Load() {
-		e.mu.Lock()
-		current := e.calls[callID]
+		// wa-poc patch: media can start a moment before the group update carrying the relay is
+		// stored (the roster is applied first); wait for it rather than ending the call's media.
 		var update *groupCallUpdate
-		if current != nil && current.groupUpdate != nil {
-			cloned := cloneGroupCallUpdate(*current.groupUpdate)
-			update = &cloned
-		}
-		e.mu.Unlock()
-		if update == nil || update.Relay == nil {
-			return fmt.Errorf("meowcaller: group media started without an authoritative relay snapshot")
+		waitUntil := time.Now().Add(groupRelaySnapshotWait)
+		for {
+			e.mu.Lock()
+			current := e.calls[callID]
+			update = nil
+			if current != nil && current.groupUpdate != nil {
+				cloned := cloneGroupCallUpdate(*current.groupUpdate)
+				update = &cloned
+			}
+			e.mu.Unlock()
+			if update != nil && update.Relay != nil {
+				break
+			}
+			if current == nil || time.Now().After(waitUntil) {
+				return fmt.Errorf("meowcaller: group media started without an authoritative relay snapshot")
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+			}
 		}
 		var relayTx [12]byte
 		if _, err := rand.Read(relayTx[:]); err != nil {
