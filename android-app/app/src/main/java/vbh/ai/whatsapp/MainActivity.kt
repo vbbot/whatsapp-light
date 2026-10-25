@@ -227,6 +227,14 @@ class MainActivity : ComponentActivity() {
                     ArchivedScreen()
                 }
 
+                is Screen.Attach -> {
+                    AttachScreen(s.chat)
+                }
+
+                is Screen.VoiceRecord -> {
+                    VoiceRecordScreen(s.chat)
+                }
+
                 is Screen.CallType -> {
                     CallTypeScreen(s.chat, s.members)
                 }

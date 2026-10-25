@@ -32,6 +32,7 @@ class MediaTest {
     @After fun tearDown() {
         Media.photoDownloader = null
         Media.videoDownloader = null
+        Media.audioDownloader = null
         Media.videoBytes = null
         Media.videoPreview = null
         Media.dir?.deleteRecursively()
@@ -111,6 +112,27 @@ class MediaTest {
         assertEquals("v1_a.mp4", Media.videoFile("v1:a").name)
         // The thumbnail stays the message's media.
         assertEquals("/m/v1:a_t.jpg", MessageStore.get("v1:a")?.media)
+    }
+
+    @Test fun voiceMessagesDownloadOnlyWhenPlayedAndAreNotPictures() {
+        Media.audioDownloader = { m ->
+            calls += m.id
+            Media.audioFile(m.id).also { it.writeText("ogg") }.path
+        }
+        val m = Msg("vm1", "a@lid", "a@lid", "", "[voice message]", 1, false, false, mediaRef = "REF")
+        MessageStore.add(m)
+        assertTrue(m.isVoice)
+        assertFalse(m.needsFullPhoto)
+        assertFalse(m.hasPicture)
+        assertTrue(Media.needsAudio(m))
+        Media.shown(m)
+        Thread.sleep(100)
+        assertTrue(calls.isEmpty())
+        Media.opened(m)
+        waitFor { Media.audioFile("vm1").exists() && !Media.states.value.containsKey("vm1") }
+        assertFalse(Media.needsAudio(m))
+        assertEquals(listOf("vm1"), calls.toList())
+        assertEquals("vm1.ogg", Media.audioFile("vm1").name)
     }
 
     @Test fun aFailedVideoSaysWhy() {

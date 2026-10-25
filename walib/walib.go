@@ -523,8 +523,9 @@ func (c *Client) CanonicalChat(jid string) string {
 	return c.canonicalString(jid, nil)
 }
 
-// SendMedia uploads a photo or video and sends it to chat. kind is "image" or "video";
-// thumbnail is an optional small JPEG shown before the recipient downloads the file.
+// SendMedia uploads a photo, video or voice message and sends it to chat. kind is "image",
+// "video" or "audio" (a voice message: Ogg Opus, sent as push-to-talk); thumbnail is an
+// optional small JPEG shown before the recipient downloads a photo or video.
 // Returns the message ID; id is the one to send it with, as for SendText.
 func (c *Client) SendMedia(chat, id, kind string, data []byte, mimetype, caption string, width, height, seconds int, thumbnail []byte) (string, error) {
 	jid, err := parseChat(chat)
@@ -567,6 +568,18 @@ func (c *Client) SendMedia(chat, id, kind string, data []byte, mimetype, caption
 			Seconds:           proto.Uint32(uint32(seconds)),
 			MediaKeyTimestamp: proto.Int64(time.Now().Unix()), JPEGThumbnail: thumb,
 			Caption: optString(caption),
+		}}
+	case "audio":
+		up, err := c.wa.Upload(ctx, data, whatsmeow.MediaAudio)
+		if err != nil {
+			return "", fmt.Errorf("upload: %w", err)
+		}
+		msg = &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath),
+			MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+			FileLength: proto.Uint64(up.FileLength), Mimetype: proto.String(mimetype),
+			Seconds: proto.Uint32(uint32(seconds)), PTT: proto.Bool(true),
+			MediaKeyTimestamp: proto.Int64(time.Now().Unix()),
 		}}
 	default:
 		return "", fmt.Errorf("unsupported media kind %q", kind)

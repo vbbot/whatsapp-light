@@ -115,6 +115,7 @@ object WaCore : Listener {
                 Outbox.isConnected = { c.isConnected }
                 Media.photoDownloader = { m -> if (m.isSticker) c.downloadSticker(m.id, m.mediaRef) else c.downloadPhoto(m.id, m.mediaRef) }
                 Media.videoDownloader = { m -> c.downloadVideo(m.id, m.mediaRef) }
+                Media.audioDownloader = { m -> c.downloadAudio(m.id, m.mediaRef) }
                 ChatIdentity.canonical = { jid -> c.canonicalChat(jid) }
                 WaState.linked.value = c.isPaired
                 WaState.status.value = if (c.isPaired) "connecting…" else "waiting for QR…"
@@ -616,6 +617,42 @@ object WaCore : Listener {
         Outbox.flush()
     }
 
+    /**
+     * Sends a voice message recorded at [draft]: it's moved into the media folder, stored as
+     * queued, and sent by [Outbox] like any other message.
+     */
+    fun sendVoice(
+        chat: String,
+        draft: File,
+    ) = bg {
+        val id =
+            vbh.ai.whatsapp.walib.Walib
+                .newMessageID()
+        val f = Media.audioFile(id)
+        try {
+            draft.copyTo(f, overwrite = true)
+            MessageStore.add(
+                Msg(
+                    id,
+                    chat,
+                    "me",
+                    "",
+                    "[voice message]",
+                    System.currentTimeMillis(),
+                    true,
+                    chat.endsWith("@g.us"),
+                    status = Status.QUEUED,
+                ),
+            )
+        } catch (e: Exception) {
+            f.delete()
+            throw e
+        } finally {
+            draft.delete()
+        }
+        Outbox.flush()
+    }
+
     /** Sends one queued message from what's stored ([Outbox.sender]). */
     private fun sendQueued(
         c: Client,
@@ -623,8 +660,15 @@ object WaCore : Listener {
     ) {
         // Sending may start with the phone asleep (the connection just came back): stay awake
         // long enough for an upload.
-        Wake.hold(if (m.hasPicture || m.isVideo) 60_000 else 10_000)
+        Wake.hold(if (m.hasPicture || m.isVideo || m.isVoice) 60_000 else 10_000)
         when {
+            m.isVoice -> {
+                val f = Media.audioFile(m.id)
+                val seconds = fileSeconds(f)
+                c.sendMedia(m.chat, m.id, "audio", f.readBytes(), VOICE_MIMETYPE, "", 0, 0, seconds.toLong(), ByteArray(0))
+                WaState.log("voice message sent: ${f.length() / 1024} KB, ${seconds}s")
+            }
+
             m.hasPicture || m.isVideo -> {
                 val media = MediaSend.fromLocal(if (m.isVideo) "video" else "image", File(m.media), Media.videoFile(m.id))
                 c.sendMedia(
@@ -1129,6 +1173,7 @@ object WaCore : Listener {
         path: String?,
     ) {
         Media.videoFile(id).delete()
+        Media.audioFile(id).delete()
         if (path == null) return
         val f = File(path)
         if (f.canonicalPath.startsWith(mediaDir().canonicalPath + File.separator)) f.delete()

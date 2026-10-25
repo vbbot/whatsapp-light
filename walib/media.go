@@ -14,11 +14,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// mediaRef is the download information of a photo, video (or GIF) or sticker message (where it
-// is stored and its key), base64-encoded for the app to keep, or "" for anything else. The
-// embedded thumbnail and caption are left out: the app already has them. The app knows which
-// kind it is from the message text, and passes it to DownloadPhoto, DownloadVideo or
-// DownloadSticker.
+// mediaRef is the download information of a photo, video (or GIF), sticker or voice message
+// (where it is stored and its key), base64-encoded for the app to keep, or "" for anything
+// else. The embedded thumbnail and caption are left out: the app already has them. The app
+// knows which kind it is from the message text, and passes it to DownloadPhoto, DownloadVideo,
+// DownloadSticker or DownloadAudio.
 func mediaRef(msg *waE2E.Message) string {
 	var m proto.Message
 	switch {
@@ -50,6 +50,14 @@ func mediaRef(msg *waE2E.Message) string {
 		st.FirstFrameSidecar = nil
 		st.ContextInfo = nil
 		m = st
+	case msg.GetAudioMessage() != nil:
+		au := msg.GetAudioMessage()
+		if au.GetDirectPath() == "" && au.GetURL() == "" {
+			return ""
+		}
+		au = proto.Clone(au).(*waE2E.AudioMessage)
+		au.ContextInfo = nil
+		m = au
 	default:
 		return ""
 	}
@@ -217,4 +225,60 @@ func stickerExt(data []byte) string {
 		return ".was"
 	}
 	return ".webp"
+}
+
+func audioOfRef(ref string) (*waE2E.AudioMessage, error) {
+	raw, err := base64.StdEncoding.DecodeString(ref)
+	if err != nil {
+		return nil, fmt.Errorf("bad media ref: %w", err)
+	}
+	au := &waE2E.AudioMessage{}
+	if err := proto.Unmarshal(raw, au); err != nil {
+		return nil, fmt.Errorf("bad media ref: %w", err)
+	}
+	return au, nil
+}
+
+// AudioSeconds is the length of a voice message from its mediaRef, or 0 if not known.
+func AudioSeconds(ref string) int {
+	au, err := audioOfRef(ref)
+	if err != nil {
+		return 0
+	}
+	return int(au.GetSeconds())
+}
+
+// DownloadAudio fetches the voice message id to "<id>.ogg" in the media directory and returns
+// its path. ref is the message's mediaRef. Old voice messages may have expired from the server
+// (ErrMediaExpired). Call from a background thread.
+func (c *Client) DownloadAudio(id, ref string) (string, error) {
+	au, err := audioOfRef(ref)
+	if err != nil {
+		return "", err
+	}
+	c.mu.Lock()
+	dir := c.mediaDir
+	c.mu.Unlock()
+	if dir == "" {
+		return "", errors.New("no media directory")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	data, err := c.wa.Download(ctx, au)
+	if expired(err) {
+		return "", ErrMediaExpired
+	}
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, safeFileName(id)+".ogg")
+	part := path + ".part"
+	if err := os.WriteFile(part, data, 0o600); err != nil {
+		return "", err
+	}
+	if err := os.Rename(part, path); err != nil {
+		os.Remove(part)
+		return "", err
+	}
+	return path, nil
 }
