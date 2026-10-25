@@ -930,6 +930,38 @@ object WaCore : Listener {
                 .setContentIntent(openApp())
                 .build()
         app.getSystemService(NotificationManager::class.java).notify(NOTIF_INCOMING, n)
+        showCallScreen()
+    }
+
+    /**
+     * Opens the incoming call screen. Android only acts on the full-screen intent while the
+     * screen is off or its own lock screen shows; otherwise it shows a heads-up notification,
+     * which LightOS doesn't draw (and a lock screen from another app doesn't count as locked).
+     * Allowed to draw over other apps, the app may start its screen itself, which then turns
+     * the screen on (while a call is on, [MainActivity] shows over the lock screen and turns it on).
+     */
+    private fun showCallScreen() {
+        val interactive = app.getSystemService(android.os.PowerManager::class.java).isInteractive
+        val locked = app.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
+        val overApps = android.provider.Settings.canDrawOverlays(app)
+        val path =
+            when {
+                MainActivity.resumed -> "already on screen"
+                overApps -> "opened directly"
+                !interactive || locked -> "full-screen intent"
+                else -> "nothing (not allowed over other apps)"
+            }
+        if (!MainActivity.resumed && overApps) {
+            runCatching {
+                app.startActivity(
+                    Intent(app, MainActivity::class.java)
+                        .addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+                        ),
+                )
+            }.onFailure { WaState.log("incoming call: couldn't open the call screen: ${it.message}") }
+        }
+        WaState.log("incoming call screen: screen ${if (interactive) "on" else "off"}, ${if (locked) "locked" else "not locked"}, $path")
     }
 
     /**

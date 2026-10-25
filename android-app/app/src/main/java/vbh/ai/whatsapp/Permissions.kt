@@ -45,6 +45,7 @@ enum class Perm(
     MICROPHONE("Microphone", "needed for calls", Manifest.permission.RECORD_AUDIO),
     CAMERA("Camera", "video calls and taking photos", Manifest.permission.CAMERA),
     FULL_SCREEN("Full-screen alerts", "incoming calls over the lock screen", null),
+    OVER_APPS("Over other apps", "incoming calls open while the screen is on", null),
     BATTERY("Battery: unrestricted", "keeps messages arriving while the phone sleeps", null),
 }
 
@@ -62,6 +63,7 @@ object Permissions {
     ): Boolean =
         when (p) {
             Perm.FULL_SCREEN -> context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
+            Perm.OVER_APPS -> Settings.canDrawOverlays(context)
             Perm.BATTERY -> context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
             else -> context.checkSelfPermission(p.permission!!) == PackageManager.PERMISSION_GRANTED
         }
@@ -75,6 +77,7 @@ object Permissions {
         val pkg = Uri.parse("package:${context.packageName}")
         return when {
             p == Perm.FULL_SCREEN -> Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, pkg)
+            p == Perm.OVER_APPS -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkg)
             p == Perm.BATTERY && !allowed -> Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg)
             else -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg)
         }

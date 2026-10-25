@@ -22,13 +22,17 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.thelightphone.sdk.ui.LightTheme
 import com.thelightphone.sdk.ui.LightThemeColors
 import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LocalHapticsEnabled
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** The splash gives up waiting after this and shows the app as it is (the status says why). */
@@ -50,6 +54,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Over the lock screen, and turning the screen on, only while a call rings or is on: once
+        // it ends on a locked phone, the lock screen covers the chats again.
+        lifecycleScope.launch {
+            WaState.call.map { it != null }.distinctUntilChanged().collect { inCall ->
+                setShowWhenLocked(inCall)
+                setTurnScreenOn(inCall)
+            }
+        }
         AppSettings.init(this)
         WaCore.prepare(this)
         MediaPicker.request = { block ->
@@ -92,8 +104,19 @@ class MainActivity : ComponentActivity() {
             pendingMic = null
         }
 
+    companion object {
+        /** Whether the app is on screen, so an incoming call needn't open it. */
+        @Volatile var resumed = false
+    }
+
+    override fun onPause() {
+        super.onPause()
+        resumed = false
+    }
+
     override fun onResume() {
         super.onResume()
+        resumed = true
         // Permissions may have changed in the system settings meanwhile.
         Permissions.refresh(this)
     }
