@@ -464,16 +464,16 @@ class VideoEngine(
                     },
                 )
             }
-        // Their packets may carry a counter-clockwise turn, as in 1:1 calls; usually in a group
-        // call they don't (-1). Their video state's turn ([participantState]) wins when they've sent
-        // one: the two can disagree, and the state's is the one that's been right.
+        // Their packets carry a counter-clockwise turn, as in 1:1 calls, which accounts for their
+        // camera; their video state's turn ([participantState]) is only the phone's, so it's a
+        // fallback for packets that don't say (-1).
         val o = orientation.toInt()
         if (o >= 0 && o != lastPacketTurn[participant]) {
             lastPacketTurn[participant] = o
             val tile = WaState.groupVideo.value[participant]
             WaState.log("video in (${d.name}): packets say orientation $o, video state says ${tile?.stateTurns ?: "nothing"}")
         }
-        if (o >= 0 && WaState.groupVideo.value[participant]?.stateTurns == null) {
+        if (o >= 0) {
             val turns = (4 - o) % 4
             if (WaState.groupVideo.value[participant]?.quarterTurns != turns) updateTile(participant) { it.copy(quarterTurns = turns) }
         }
@@ -496,7 +496,8 @@ class VideoEngine(
         cameraOn: Boolean?,
         orientation: Int,
     ) = updateTile(participant) {
-        it.copy(quarterTurns = orientation.mod(4), stateTurns = orientation.mod(4), cameraOn = cameraOn ?: it.cameraOn)
+        val turns = if (lastPacketTurn.containsKey(participant)) it.quarterTurns else orientation.mod(4)
+        it.copy(quarterTurns = turns, stateTurns = orientation.mod(4), cameraOn = cameraOn ?: it.cameraOn)
     }
 
     /** The last orientation each participant's packets carried, to log when it changes. */

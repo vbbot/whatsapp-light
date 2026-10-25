@@ -39,3 +39,13 @@
    carried the `<video>` (`onVideoStanzaFrom` in `engine.go`). In a group call each participant
    sends their own `<video state device_orientation>`, and their video packets carry no
    orientation extension, so the app needs the sender to rotate each participant's video.
+
+7. **Tolerant video RTP extension parsing.** `ParseWhatsappVideoExtension` (`rtp/rtp.go`) now
+   stops at element ID 15 (RFC 8285 §4.2) instead of rejecting the whole extension. It also no
+   longer requires the short offset, only the frame info that carries the orientation. In a
+   group video call with two remote senders, the second sender's orientation was never read,
+   so their video was drawn rotated. `engine_media.go` logs the first few video packets whose
+   extension still can't be read (`peer video rtp without readable extension`, with the raw
+   extension bytes, which are unencrypted header metadata). Patch 6's note that group video
+   packets carry no orientation was wrong: they do, and it accounts for the sender's camera,
+   which the `<video>` stanza's orientation doesn't.

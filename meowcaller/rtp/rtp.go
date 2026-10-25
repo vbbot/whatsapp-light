@@ -230,7 +230,7 @@ func ParseWhatsappVideoExtension(data []byte) (*VideoRtpExtension, bool) {
 		return nil, false
 	}
 	parsed := &VideoRtpExtension{}
-	var hasFrameInfo, hasShortOffset bool
+	var hasFrameInfo bool
 	for offset := 0; offset < len(ext); {
 		header := ext[offset]
 		offset++
@@ -238,8 +238,12 @@ func ParseWhatsappVideoExtension(data []byte) (*VideoRtpExtension, bool) {
 			continue
 		}
 		id := header >> 4
+		// wa-poc patch: ID 15 ends the list (RFC 8285 §4.2) rather than spoiling it.
+		if id == 15 {
+			break
+		}
 		length := int(header&0x0f) + 1
-		if id == 15 || offset+length > len(ext) {
+		if offset+length > len(ext) {
 			return nil, false
 		}
 		value := ext[offset : offset+length]
@@ -265,7 +269,6 @@ func ParseWhatsappVideoExtension(data []byte) (*VideoRtpExtension, bool) {
 				return nil, false
 			}
 			parsed.ShortOffset = int16(binary.BigEndian.Uint16(value))
-			hasShortOffset = true
 		case 9:
 			if length != 2 {
 				return nil, false
@@ -273,7 +276,9 @@ func ParseWhatsappVideoExtension(data []byte) (*VideoRtpExtension, bool) {
 			parsed.TransportSequence = binary.BigEndian.Uint16(value)
 		}
 	}
-	if !hasFrameInfo || !hasShortOffset {
+	// wa-poc patch: the frame info (with the orientation) is enough; group call packets may
+	// leave out the short offset.
+	if !hasFrameInfo {
 		return nil, false
 	}
 	return parsed, true

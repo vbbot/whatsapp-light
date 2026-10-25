@@ -56,7 +56,7 @@ data class CallUi(
  */
 data class VideoTile(
     val quarterTurns: Int = 0,
-    /** The turn their video state gave, once they've sent one; it outranks their packets'. */
+    /** The turn their video state gave, once they've sent one (for the log; their packets' wins). */
     val stateTurns: Int? = null,
     val cameraOn: Boolean = true,
     val width: Int = VideoEngine.WIDTH,

@@ -641,6 +641,7 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	var rosterGeneration uint64
 	hasRosterGeneration := false
 	var videoWirePacket, videoWireFrame uint64
+	var videoExtMissing int // wa-poc patch
 
 	// Video send: a second WARP pipeline on our video SSRC, registered on the call so
 	// Call.SendVideoFrame can push encoded H.264 to the relay. Cleared when the loop exits.
@@ -1026,6 +1027,14 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 						Uint16("initial_bandwidth", x.InitialBandwidth).Int16("short_offset", x.ShortOffset).
 						Uint16("transport_seq", x.TransportSequence).Msg("peer video rtp ext")
 				}
+			}
+			// wa-poc patch: say what a video packet carried when it had no readable extension.
+			if vh.VideoExtension == nil && videoExtMissing < 6 {
+				videoExtMissing++
+				profile, extension, hasExtension := rtp.RtpExtensionProfileAndData(pkt)
+				log.Info().Uint32("ssrc", vh.Ssrc).Uint16("seq", vh.SequenceNumber).Bool("has_extension", hasExtension).
+					Str("profile", fmt.Sprintf("0x%04x", profile)).Str("extension_hex", hex.EncodeToString(extension)).
+					Msg("peer video rtp without readable extension")
 			}
 			if vh.VideoExtension != nil {
 				orientation := vh.VideoExtension.DisplayOrientation()
