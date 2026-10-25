@@ -29,6 +29,7 @@ object WaCore : Listener {
     const val CH_SERVICE = "service"
     const val CH_INCOMING = "incoming"
     const val CH_MESSAGES = "messages"
+    const val CH_MISSED = "missed"
     private const val NOTIF_INCOMING = 2
     private const val OLDER_PAGE = 50
 
@@ -240,6 +241,7 @@ object WaCore : Listener {
         nm.createNotificationChannel(NotificationChannel(CH_SERVICE, "Connection", NotificationManager.IMPORTANCE_LOW))
         nm.createNotificationChannel(NotificationChannel(CH_INCOMING, "Incoming calls", NotificationManager.IMPORTANCE_HIGH))
         nm.createNotificationChannel(NotificationChannel(CH_MESSAGES, "Messages", NotificationManager.IMPORTANCE_DEFAULT))
+        nm.createNotificationChannel(NotificationChannel(CH_MISSED, "Missed calls", NotificationManager.IMPORTANCE_DEFAULT))
     }
 
     // --- contact resolution ---
@@ -930,6 +932,32 @@ object WaCore : Listener {
         app.getSystemService(NotificationManager::class.java).notify(NOTIF_INCOMING, n)
     }
 
+    /**
+     * Leaves a notification for a call that rang out here unanswered. Unlike the ringing one it can be
+     * dismissed, so watches that skip ongoing notifications get it too.
+     */
+    private fun notifyMissed(r: CallRecord) {
+        val who =
+            if (r.isGroup) {
+                groupCallTitle(r.peer.takeIf { it.endsWith("@g.us") }?.let(MessageStore::title), r.members.map(MessageStore::title))
+            } else {
+                MessageStore.title(r.peer)
+            }
+        val n =
+            NotificationCompat
+                .Builder(app, CH_MISSED)
+                .setSmallIcon(android.R.drawable.stat_notify_missed_call)
+                .setContentTitle(r.missedTitle)
+                .setContentText(who)
+                .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+                .setWhen(r.startedAt)
+                .setShowWhen(true)
+                .setAutoCancel(true)
+                .setContentIntent(openApp())
+                .build()
+        app.getSystemService(NotificationManager::class.java).notify("missed:${r.id}".hashCode(), n)
+    }
+
     /** Who's calling, for the notification: the person, or the group call's group or participants. */
     private fun callNotificationText(
         callID: String,
@@ -981,8 +1009,9 @@ object WaCore : Listener {
     ) {
         Wake.inCall(false)
         groupCalls.remove(callID)
-        CallLog.ended(callID)
+        val rec = CallLog.ended(callID)
         stopRing()
+        if (rec?.outcome == CallRecord.Outcome.MISSED) notifyMissed(rec)
         audio.stop()
         if (sentOk + sentFailed > 0) WaState.log("video out: total accepted $sentOk, failed $sentFailed")
         video.stopCamera()

@@ -18,4 +18,11 @@ class CallRecordTest {
         assertEquals("no answer", rec(false, CallRecord.Outcome.NO_ANSWER).summary)
         assertEquals("video · missed", rec(true, CallRecord.Outcome.MISSED, video = true).summary)
     }
+
+    @Test fun missedTitles() {
+        assertEquals("Missed WhatsApp call", rec(true, CallRecord.Outcome.MISSED).missedTitle)
+        assertEquals("Missed WhatsApp video call", rec(true, CallRecord.Outcome.MISSED, video = true).missedTitle)
+        val group = CallRecord("id", "g@g.us", true, 0, outcome = CallRecord.Outcome.MISSED)
+        assertEquals("Missed WhatsApp group call", group.missedTitle)
+    }
 }
