@@ -202,10 +202,9 @@ fun ThreadScreen(chat: String) {
         LightBottomBar(
             modifier = Modifier.navigationBarsPadding(),
             // Call (choose voice or video next) | attach a photo or video | write.
-            // Groups can't be called here; the slot stays empty so the others keep their places.
             items =
                 listOf(
-                    if (isGroup) null else icon(LightIcons.CALL, "Call $title") { Nav.push(Screen.CallType(chat)) },
+                    icon(LightIcons.CALL, "Call $title") { Nav.push(Screen.CallType(chat)) },
                     icon(LightIcons.ADD, "Send a photo or video to $title") {
                         MediaPicker.pick { uri -> if (uri != null) WaCore.sendMedia(chat, uri) }
                     },

@@ -228,7 +228,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 is Screen.CallType -> {
-                    CallTypeScreen(s.chat)
+                    CallTypeScreen(s.chat, s.members)
                 }
 
                 is Screen.MediaViewer -> {
@@ -244,12 +244,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                is Screen.CallMembers -> {
-                    CallMembersScreen(s.id)
-                }
-
                 is Screen.CallConfirm -> {
-                    CallConfirmScreen(s.chat, s.video)
+                    CallConfirmScreen(s.chat, s.video, s.members)
                 }
 
                 Screen.Permissions -> {

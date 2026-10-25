@@ -273,21 +273,15 @@ private fun CallList() {
                 time = formatRowTime(c.startedAt),
                 // A missed call is the one thing worth flagging, with the same asterisk as unread chats.
                 flagged = c.outcome == CallRecord.Outcome.MISSED,
-                // Group calls can't be made from here yet: open the group's chat, or list who was on a
-                // call between chosen people.
+                // A group call is called back as one, voice or video: the group, or everyone who was on it.
                 onClick = {
                     when {
-                        c.peer.endsWith("@g.us") -> Nav.push(Screen.Thread(c.peer))
-                        c.isGroup -> Nav.push(Screen.CallMembers(c.id))
+                        c.peer.endsWith("@g.us") -> Nav.push(Screen.CallType(c.peer))
+                        c.isGroup -> Nav.push(Screen.CallType(c.peer, (listOf(c.peer) + c.members.map(::normalizeJid)).distinct()))
                         else -> WaCore.call(c.peer)
                     }
                 },
-                label =
-                    when {
-                        c.peer.endsWith("@g.us") -> "Open chat with $name"
-                        c.isGroup -> "Who was on the call"
-                        else -> "Call $name back"
-                    },
+                label = "Call $name back",
             )
         }
     }
@@ -554,50 +548,36 @@ private fun ContactRow(
 
 // ---------------------------------------------------------------- call type / confirm
 
-/** Full-screen choice between a voice and a video call, opened from a thread's call button. */
+/** Who a call goes to, by name: [chat]'s title, or for a call between chosen people their names. */
 @Composable
-fun CallTypeScreen(chat: String) {
+private fun rememberCallTargetTitle(
+    chat: String,
+    members: List<String>,
+): String {
     val title = rememberTitle(chat)
+    if (members.isEmpty()) return title
+    val names by MessageStore.names.collectAsState()
+    val phones by MessageStore.phones.collectAsState()
+    val query = { groupCallTitle(null, members.map(MessageStore::title)) }
+    val initial = remember(members) { query() }
+    return rememberQuery(members, names, phones, initial = initial, query = query) ?: initial
+}
+
+/** Full-screen choice between a voice and a video call, opened from a thread's call button or the call log. */
+@Composable
+fun CallTypeScreen(
+    chat: String,
+    members: List<String> = emptyList(),
+) {
+    val title = rememberCallTargetTitle(chat, members)
     ScreenColumn {
         LightTopBar(
             leftButton = backButton(title) { Nav.pop() },
             center = LightTopBarCenter.Text("Call"),
         )
         Column(Modifier.weight(1f).fillMaxWidth()) {
-            ContactRow(name = "Voice call", subtitle = "audio only") { Nav.push(Screen.CallConfirm(chat, video = false)) }
-            ContactRow(name = "Video call", subtitle = "your camera turns on") { Nav.push(Screen.CallConfirm(chat, video = true)) }
-        }
-        Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
-    }
-}
-
-/** Everyone on a group call between chosen people, the caller first; tapping one opens their chat. */
-@Composable
-fun CallMembersScreen(id: String) {
-    val calls by CallLog.calls.collectAsState()
-    val changes by MessageStore.changes.collectAsState()
-    val names by MessageStore.names.collectAsState()
-    val phones by MessageStore.phones.collectAsState()
-    val call = calls.firstOrNull { it.id == id }
-    val members = call?.let { c -> (listOf(c.peer) + c.members.map(::normalizeJid)).distinct() }.orEmpty()
-    val titles = rememberQuery(members, changes, names, phones) { members.associateWith { MessageStore.title(it) } }.orEmpty()
-    ScreenColumn {
-        LightTopBar(
-            leftButton = backButton("calls") { Nav.pop() },
-            center = LightTopBarCenter.Text("On the call"),
-        )
-        LightLazyScrollView(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            scrollBarPosition = LightScrollBarPosition.Inside,
-            uniformItemHeightGridUnits = 4.5f,
-            listState = rememberLazyListState(),
-        ) {
-            items(members, key = { it }) { m ->
-                ContactRow(
-                    name = titles[m] ?: MessageStore.fallbackTitle(m, phones[m]),
-                    subtitle = null,
-                ) { Nav.push(Screen.Thread(m)) }
-            }
+            ContactRow(name = "Voice call", subtitle = "audio only") { Nav.push(Screen.CallConfirm(chat, video = false, members)) }
+            ContactRow(name = "Video call", subtitle = "your camera turns on") { Nav.push(Screen.CallConfirm(chat, video = true, members)) }
         }
         Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
     }
@@ -608,15 +588,20 @@ fun CallMembersScreen(id: String) {
 fun CallConfirmScreen(
     chat: String,
     video: Boolean,
+    members: List<String> = emptyList(),
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val title = rememberTitle(chat)
+    val title = rememberCallTargetTitle(chat, members)
 
     fun dial() {
         // Back to the thread first, so ending the call returns there, not to this screen.
         Nav.pop()
         Nav.pop()
-        WaCore.call(chat, withVideo = video)
+        if (chat.endsWith("@g.us") || members.isNotEmpty()) {
+            WaCore.callGroup(chat, members, withVideo = video)
+        } else {
+            WaCore.call(chat, withVideo = video)
+        }
     }
     ScreenColumn {
         LightTopBar(leftButton = backButton("call options") { Nav.pop() })

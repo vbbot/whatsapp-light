@@ -365,6 +365,40 @@ object WaCore : Listener {
     }
 
     /**
+     * Places a group call: to everyone in [peer] when it's a group chat, else to [members] (a call
+     * between chosen people, called back from the call log).
+     */
+    fun callGroup(
+        peer: String,
+        members: List<String>,
+        withVideo: Boolean = false,
+    ) = MicGate.withMic { ok ->
+        if (!ok) {
+            WaState.error.value = MicGate.NEEDED
+            return@withMic
+        }
+        bg {
+            WaState.error.value = null
+            val group = peer.endsWith("@g.us")
+            val id =
+                try {
+                    if (group) client!!.callGroup(peer, withVideo) else client!!.callPeople(members.joinToString(","), withVideo)
+                } catch (e: Exception) {
+                    WaState.log("group call failed: ${e.message}")
+                    WaState.error.value = "Couldn't start the group call (${e.message})."
+                    return@bg
+                }
+            // walib reports the members while placing the call, before this screen state exists.
+            val info = groupCalls[id] ?: GroupCallInfo(if (group) peer else "", members, emptyList())
+            CallLog.start(id, if (group) peer else members.first(), incoming = false, video = withVideo, members = info.members)
+            Wake.inCall(true)
+            WaState.call.value =
+                CallUi(id, peer, incoming = false, phase = 1, video = withVideo, localVideo = withVideo, remoteVideo = withVideo)
+                    .withGroup(info)
+        }
+    }
+
+    /**
      * Answers; for a video call our camera turns on too (unless camera access was refused). Without
      * the microphone the call keeps ringing and the screen says why.
      */

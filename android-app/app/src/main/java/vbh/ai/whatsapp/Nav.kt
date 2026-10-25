@@ -88,20 +88,20 @@ sealed interface Screen {
         val gif: Boolean = false,
     ) : Screen
 
-    /** Choose voice or video before calling [chat]. */
+    /**
+     * Choose voice or video before calling [chat]: a person, a group chat, or with [members], the
+     * people on a call between chosen people (called back from the call log).
+     */
     data class CallType(
         val chat: String,
+        val members: List<String> = emptyList(),
     ) : Screen
 
-    /** Everyone on a group call between chosen people (call log [id]); tap one to open their chat. */
-    data class CallMembers(
-        val id: String,
-    ) : Screen
-
-    /** Confirm placing a voice or video call to [chat]. */
+    /** Confirm placing a voice or video call to [chat] (or [members], as for [CallType]). */
     data class CallConfirm(
         val chat: String,
         val video: Boolean,
+        val members: List<String> = emptyList(),
     ) : Screen
 }
 
