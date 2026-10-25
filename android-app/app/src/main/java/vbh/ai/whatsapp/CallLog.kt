@@ -27,6 +27,10 @@ data class CallRecord(
 
     enum class Outcome { ONGOING, ANSWERED, MISSED, DECLINED, NO_ANSWER }
 
+    /** The missed-call notification's title: "Missed WhatsApp call", "Missed WhatsApp group video call", … */
+    val missedTitle: String
+        get() = "Missed WhatsApp " + (if (isGroup) "group " else "") + (if (video) "video call" else "call")
+
     /** Lowercase subtitle for the call log row: what happened, and for how long. */
     val summary: String
         get() =
@@ -152,8 +156,9 @@ object CallLog {
         declined += id
     }
 
+    /** Records how call [id] ended; returns the finished record. */
     @Synchronized
-    fun ended(id: String) =
+    fun ended(id: String): CallRecord? =
         update(id) {
             val outcome =
                 when {
@@ -168,11 +173,13 @@ object CallLog {
     private fun update(
         id: String,
         f: (CallRecord) -> CallRecord,
-    ) {
-        val d = db ?: return
-        val cur = d.rawQuery("SELECT * FROM calls WHERE id = ?", arrayOf(id)).readAll(ChatDb::call).firstOrNull() ?: return
-        d.update("calls", ChatDb.values(f(cur)), "id = ?", arrayOf(id))
+    ): CallRecord? {
+        val d = db ?: return null
+        val cur = d.rawQuery("SELECT * FROM calls WHERE id = ?", arrayOf(id)).readAll(ChatDb::call).firstOrNull() ?: return null
+        val next = f(cur)
+        d.update("calls", ChatDb.values(next), "id = ?", arrayOf(id))
         reload()
+        return next
     }
 
     /** One-time import of calls.json (renamed to calls.json.migrated afterwards). */
