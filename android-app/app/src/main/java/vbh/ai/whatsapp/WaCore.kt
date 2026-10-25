@@ -927,6 +927,12 @@ object WaCore : Listener {
         CallLog.start(callID, group?.group?.ifEmpty { null } ?: peer, incoming = true, video = video, members = group?.members.orEmpty())
         resolve(peer)
         ringtone = RingtoneManager.getRingtone(app, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.also { it.play() }
+        val caller =
+            androidx.core.app.Person
+                .Builder()
+                .setName(callNotificationText(callID, peer))
+                .setImportant(true)
+                .build()
         val n =
             NotificationCompat
                 .Builder(app, CH_INCOMING)
@@ -934,7 +940,15 @@ object WaCore : Listener {
                 .setContentTitle(
                     "Incoming WhatsApp " + (if (groupCalls.containsKey(callID)) "group " else "") + if (video) "video call" else "call",
                 ).setContentText(callNotificationText(callID, peer))
-                .setCategory(NotificationCompat.CATEGORY_CALL)
+                // Answer and Decline buttons, which watches forward and press.
+                .setStyle(
+                    NotificationCompat.CallStyle
+                        .forIncomingCall(
+                            caller,
+                            CallActionReceiver.pending(app, CallActionReceiver.DECLINE, callID),
+                            CallActionReceiver.pending(app, CallActionReceiver.ANSWER, callID),
+                        ).setIsVideo(video),
+                ).setCategory(NotificationCompat.CATEGORY_CALL)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setOngoing(true)
                 .setFullScreenIntent(openApp(), true)
