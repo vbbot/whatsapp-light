@@ -1223,11 +1223,19 @@ object WaCore : Listener {
     override fun onParticipantVideoState(
         callID: String,
         participant: String,
-        active: Boolean,
+        state: Long,
         orientation: Long,
     ) {
-        WaState.log("video state (participant): active=$active orientation=$orientation")
-        video.participantState(normalizeJid(participant), active, orientation.toInt())
+        WaState.log("video state (${video.participantName(normalizeJid(participant))}): raw=$state orientation=$orientation")
+        // As in 1:1 calls, only 0 and 6 mean the camera went off; other states (2 comes while a
+        // call is being set up) leave it as it was.
+        val cameraOn =
+            when (state) {
+                1L -> true
+                0L, 6L -> false
+                else -> null
+            }
+        video.participantState(normalizeJid(participant), cameraOn, orientation.toInt())
     }
 
     override fun onKeyframeRequest(callID: String) {

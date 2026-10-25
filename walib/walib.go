@@ -77,9 +77,10 @@ type Listener interface {
 	// OnKeyframeRequest asks the encoder to make its next frame an IDR (peer lost sync or
 	// just accepted the call).
 	OnKeyframeRequest(callID string)
-	// OnParticipantVideoState reports a group call participant's camera: active (on), and
-	// orientation (rotate their frames by orientation x 90° clockwise to show them upright).
-	OnParticipantVideoState(callID, participant string, active bool, orientation int)
+	// OnParticipantVideoState reports a group call participant's camera: state is the raw video
+	// state (1 on; 0 and 6 off; others leave it as it was), and orientation (rotate their frames
+	// by orientation x 90° clockwise to show them upright).
+	OnParticipantVideoState(callID, participant string, state, orientation int)
 	// OnRemoteOrientation reports the orientation carried in the peer's video packets:
 	// clockwise quarter turns to draw their frames upright. Authoritative for rendering.
 	OnRemoteOrientation(callID string, quarterTurns int)
@@ -849,7 +850,7 @@ func (c *Client) attach(call *meowcaller.Call) {
 		group := c.groupVideo == id
 		c.mu.Unlock()
 		if group && !v.Sender.IsEmpty() {
-			c.l.OnParticipantVideoState(id, c.canonical(v.Sender, nil).String(), v.Active, v.Orientation)
+			c.l.OnParticipantVideoState(id, c.canonical(v.Sender, nil).String(), v.Raw, v.Orientation)
 		}
 	})
 	call.OnVideoKeyframeRequest(func() { c.l.OnKeyframeRequest(id) })

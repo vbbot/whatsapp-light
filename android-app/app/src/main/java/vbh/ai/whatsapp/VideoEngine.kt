@@ -425,6 +425,9 @@ class VideoEngine(
         participants[participant]?.setSurface(surface)
     }
 
+    /** [participant]'s name in the log ("participant 2"), without their ID. */
+    fun participantName(participant: String): String = participants[participant]?.name ?: "participant with no video yet"
+
     /** When [participant]'s last frame arrived (elapsed ms), 0 if none yet. */
     fun lastFrameAt(participant: String): Long = participants[participant]?.lastFrameAt ?: 0L
 
@@ -432,6 +435,7 @@ class VideoEngine(
         peer.release()
         participants.values.forEach { it.release() }
         participants.clear()
+        lastPacketTurn.clear()
         WaState.groupVideo.value = emptyMap()
     }
 
@@ -454,17 +458,32 @@ class VideoEngine(
                 RemoteDecoder(
                     "participant ${participants.size + 1}",
                     onFirstShown = { onRemoteFrameShown?.invoke() },
-                    onSize = { w, h -> updateTile(participant) { it.copy(width = w, height = h) } },
+                    onSize = { w, h ->
+                        WaState.log("video in (${participantName(participant)}): picture is ${w}x$h")
+                        updateTile(participant) { it.copy(width = w, height = h) }
+                    },
                 )
             }
-        // Their packets may carry a counter-clockwise turn, as in 1:1 calls; usually in a group
-        // call they don't (-1), and the turn comes from their video state ([participantState]).
+        // Their packets carry a counter-clockwise turn, as in 1:1 calls, which accounts for their
+        // camera; their video state's turn ([participantState]) is only the phone's, so it's a
+        // fallback for packets that don't say (-1).
         val o = orientation.toInt()
+        if (o >= 0 && o != lastPacketTurn[participant]) {
+            lastPacketTurn[participant] = o
+            val tile = WaState.groupVideo.value[participant]
+            WaState.log("video in (${d.name}): packets say orientation $o, video state says ${tile?.stateTurns ?: "nothing"}")
+        }
         if (o >= 0) {
             val turns = (4 - o) % 4
             if (WaState.groupVideo.value[participant]?.quarterTurns != turns) updateTile(participant) { it.copy(quarterTurns = turns) }
         }
         if (participant !in WaState.groupVideo.value) updateTile(participant) { it }
+        if (d.framesIn == 0) {
+            val tile = WaState.groupVideo.value[participant]
+            WaState.log(
+                "video in (${d.name}): first frame, drawn at ${tile?.quarterTurns} turns, video state says ${tile?.stateTurns ?: "nothing"}",
+            )
+        }
         d.frame(accessUnit)
     }
 
@@ -474,9 +493,15 @@ class VideoEngine(
      */
     fun participantState(
         participant: String,
-        active: Boolean,
+        cameraOn: Boolean?,
         orientation: Int,
-    ) = updateTile(participant) { it.copy(quarterTurns = orientation.mod(4), cameraOn = active) }
+    ) = updateTile(participant) {
+        val turns = if (lastPacketTurn.containsKey(participant)) it.quarterTurns else orientation.mod(4)
+        it.copy(quarterTurns = turns, stateTurns = orientation.mod(4), cameraOn = cameraOn ?: it.cameraOn)
+    }
+
+    /** The last orientation each participant's packets carried, to log when it changes. */
+    private val lastPacketTurn = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     private fun updateTile(
         participant: String,
