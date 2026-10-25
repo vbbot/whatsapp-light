@@ -72,6 +72,7 @@ object WaCore : Listener {
         MessageStore.init(app)
         AppSettings.init(app)
         CallLog.init(app)
+        CallTelecom.init(app)
         createChannels()
         watchNetwork()
         connect()
@@ -363,7 +364,9 @@ object WaCore : Listener {
             Wake.inCall(true)
             WaState.call.value =
                 CallUi(id, target.trim(), incoming = false, phase = 1, video = withVideo, localVideo = withVideo, remoteVideo = withVideo)
-            resolve(if (target.contains("@")) target.trim() else target.trim().removePrefix("+") + "@s.whatsapp.net")
+            val jid = if (target.contains("@")) target.trim() else target.trim().removePrefix("+") + "@s.whatsapp.net"
+            resolve(jid)
+            CallTelecom.outgoing(id, MessageStore.title(normalizeJid(jid)), withVideo)
         }
     }
 
@@ -398,6 +401,11 @@ object WaCore : Listener {
             WaState.call.value =
                 CallUi(id, peer, incoming = false, phase = 1, video = withVideo, localVideo = withVideo, remoteVideo = withVideo)
                     .withGroup(info)
+            CallTelecom.outgoing(
+                id,
+                groupCallTitle(info.group.ifEmpty { null }?.let(MessageStore::title), info.members.map(MessageStore::title)),
+                withVideo,
+            )
         }
     }
 
@@ -532,6 +540,7 @@ object WaCore : Listener {
         bg {
             val c = WaState.call.value ?: return@bg
             CallLog.markDeclined(c.id)
+            CallTelecom.endingHere(c.id)
             stopRing()
             client!!.reject(c.id)
         }
@@ -539,6 +548,7 @@ object WaCore : Listener {
     fun hangup() =
         bg {
             val c = WaState.call.value ?: return@bg
+            CallTelecom.endingHere(c.id)
             client!!.hangup(c.id)
         }
 
@@ -711,7 +721,8 @@ object WaCore : Listener {
     }
 
     fun setSpeaker(on: Boolean) {
-        if (::audio.isInitialized) audio.setSpeakerphone(on)
+        // A call Telecom holds is routed through it; otherwise directly.
+        if (!CallTelecom.speaker(on) && ::audio.isInitialized) audio.setSpeakerphone(on)
         WaState.call.value = WaState.call.value?.copy(speaker = on)
     }
 
@@ -930,6 +941,7 @@ object WaCore : Listener {
                 .setContentIntent(openApp())
                 .build()
         app.getSystemService(NotificationManager::class.java).notify(NOTIF_INCOMING, n)
+        CallTelecom.incoming(callID, callNotificationText(callID, peer), video)
         showCallScreen()
     }
 
@@ -1017,6 +1029,7 @@ object WaCore : Listener {
 
     override fun onCallReady(callID: String) {
         CallLog.answered(callID)
+        CallTelecom.active(callID)
         client?.let { audio.start(it) }
         // Video calls are held away from the face: default to the loudspeaker.
         if (WaState.call.value?.video == true) {
@@ -1043,6 +1056,7 @@ object WaCore : Listener {
         groupCalls.remove(callID)
         val rec = CallLog.ended(callID)
         stopRing()
+        CallTelecom.ended(callID, rec?.outcome)
         if (rec?.outcome == CallRecord.Outcome.MISSED) notifyMissed(rec)
         audio.stop()
         if (sentOk + sentFailed > 0) WaState.log("video out: total accepted $sentOk, failed $sentFailed")
