@@ -76,6 +76,18 @@ data class Msg(
             .trim()
 }
 
+/** The words of [Msg] that search looks in: its text, or a photo's or video's caption. */
+val Msg.searchText: String get() =
+    when {
+        isDeleted -> ""
+        isText -> text
+        hasPicture || isVideo || text.startsWith("[image]") -> caption
+        else -> ""
+    }
+
+/** At most this many search results. */
+const val SEARCH_LIMIT = 200
+
 /** Someone's reaction to a message: [reactor] is a chat JID, or "me". */
 data class Reaction(
     val messageId: String,
@@ -767,6 +779,28 @@ object MessageStore {
                 "SELECT * FROM (SELECT * FROM messages WHERE chat = ? ORDER BY ts DESC LIMIT ?) ORDER BY ts ASC",
                 arrayOf(chat, limit.toString()),
             ).readAll(ChatDb::msg)
+    }
+
+    /**
+     * Messages in any chat whose words contain [query], ignoring case, newest first, at most
+     * [limit]. Only what people wrote counts: a message's text or a photo's or video's caption,
+     * not placeholders like "[voice message]".
+     */
+    fun search(
+        query: String,
+        limit: Int = SEARCH_LIMIT,
+    ): List<Msg> {
+        val q = query.trim()
+        val d = db ?: return emptyList()
+        if (q.isEmpty()) return emptyList()
+        val pattern = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        return d
+            .rawQuery(
+                "SELECT * FROM messages WHERE text LIKE ? ESCAPE '\\' AND text != ? ORDER BY ts DESC LIMIT ?",
+                arrayOf(pattern, DELETED_TEXT, (limit * 2).toString()),
+            ).readAll(ChatDb::msg)
+            .filter { it.searchText.contains(q, ignoreCase = true) }
+            .take(limit)
     }
 
     /** [chat]'s newest stored message, or null. */

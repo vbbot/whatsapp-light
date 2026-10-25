@@ -1,6 +1,7 @@
 package vbh.ai.whatsapp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,6 +43,27 @@ class FormatTest {
 
     @Test fun messageTimeTodayHasNoDayTag() {
         assertTrue(formatMessageTime(System.currentTimeMillis()).matches(Regex("\\d{1,2}:\\d\\d [AP]M")))
+    }
+
+    @Test fun peopleMatchByNameOrNumber() {
+        val ann = Contact("447700900123@s.whatsapp.net", "Ann Lee", "+447700900123")
+        assertTrue(matchesPerson(ann, "ann"))
+        assertTrue(matchesPerson(ann, "LEE"))
+        assertTrue(matchesPerson(ann, "0900"))
+        assertTrue(matchesPerson(ann, "+44 7700"))
+        assertFalse(matchesPerson(ann, "12"))
+        assertFalse(matchesPerson(ann, "bob"))
+        assertFalse(matchesPerson(ann, "  "))
+        // A number on its own matches from the JID when no phone is known.
+        assertTrue(matchesPerson(Contact("447700900999@s.whatsapp.net", "+447700900999", ""), "900999"))
+        assertFalse(matchesPerson(Contact("123456@lid", "Bob", ""), "1234"))
+    }
+
+    @Test fun searchSnippetStartsNearTheMatchOnOneLine() {
+        assertEquals("see you at lunch", searchSnippet("see you\nat  lunch", "lunch"))
+        val long = "We talked about a lot of things yesterday evening, and then the lunch plan came up"
+        assertEquals("…yesterday evening, and then the lunch plan came up", searchSnippet(long, "LUNCH"))
+        assertEquals("no match here", searchSnippet("no match here", "zzz"))
     }
 
     @Test fun clockShowsMinutesWithoutPaddingAndHoursWhenLong() {

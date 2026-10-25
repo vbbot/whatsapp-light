@@ -190,6 +190,30 @@ class MessageStoreTest {
         MessageStore.open(db)
     }
 
+    @Test fun searchFindsWordsInAnyChatNewestFirst() {
+        MessageStore.addAll(
+            listOf(
+                m("1", "a@lid", 10).copy(text = "Lunch at noon?"),
+                m("2", "b@lid", 30).copy(text = "no LUNCH today"),
+                m("3", "a@lid", 20).copy(text = "[image] lunch spot"),
+                m("4", "a@lid", 40).copy(text = "[voice message]"),
+                m("5", "b@lid", 50).copy(text = "100% sure_thing"),
+                m("6", "b@lid", 60).copy(text = DELETED_TEXT),
+            ),
+        )
+        assertEquals(listOf("2", "3", "1"), MessageStore.search("lunch").map { it.id })
+        // Placeholders aren't words anyone wrote.
+        assertTrue(MessageStore.search("voice").isEmpty())
+        assertTrue(MessageStore.search("image").isEmpty())
+        assertTrue(MessageStore.search("deleted").isEmpty())
+        // LIKE's wildcards are taken literally.
+        assertEquals(listOf("5"), MessageStore.search("0% s").map { it.id })
+        assertEquals(listOf("5"), MessageStore.search("e_t").map { it.id })
+        assertTrue(MessageStore.search("_").none { it.id != "5" })
+        assertTrue(MessageStore.search("  ").isEmpty())
+        assertEquals(1, MessageStore.search("lunch", limit = 1).size)
+    }
+
     @Test fun captionStripsPlaceholder() {
         val img = Msg("i", "a@lid", "a@lid", "", "[image] look", 1, false, false)
         assertEquals("look", img.caption)

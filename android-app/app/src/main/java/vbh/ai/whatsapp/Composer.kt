@@ -128,6 +128,26 @@ fun EditMessageScreen(
     )
 }
 
+/**
+ * Typing what to search for; SEARCH lists the people and groups it matches, then the messages
+ * that contain it. The text stays for going back to change it.
+ */
+@Composable
+fun SearchScreen() {
+    val state = rememberTextFieldState()
+    MessageEditor(
+        title = "Search",
+        state = state,
+        header = null,
+        onSubmit = { text ->
+            val query = text.toString().trim()
+            if (query.isNotEmpty()) Nav.push(Screen.SearchResults(query))
+        },
+        onBack = { Nav.pop() },
+        submitLabel = "SEARCH",
+    )
+}
+
 /** The pending reply above the text: its quote line, and ✕ to send without it. */
 @Composable
 private fun ReplyHeader(

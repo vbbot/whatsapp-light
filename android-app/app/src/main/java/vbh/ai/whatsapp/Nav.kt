@@ -16,8 +16,10 @@ enum class Purpose { MESSAGE, CALL }
 sealed interface Screen {
     data object Home : Screen
 
+    /** A chat; with [focus], scrolled to that message and highlighting it (a search result). */
     data class Thread(
         val chat: String,
+        val focus: String? = null,
     ) : Screen
 
     data class Composer(
@@ -36,6 +38,14 @@ sealed interface Screen {
 
     data class Number(
         val purpose: Purpose,
+    ) : Screen
+
+    /** Typing what to search messages for. */
+    data object Search : Screen
+
+    /** Messages in any chat that contain [query]. */
+    data class SearchResults(
+        val query: String,
     ) : Screen
 
     data object Settings : Screen
