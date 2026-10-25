@@ -425,6 +425,9 @@ class VideoEngine(
         participants[participant]?.setSurface(surface)
     }
 
+    /** [participant]'s name in the log ("participant 2"), without their ID. */
+    fun participantName(participant: String): String = participants[participant]?.name ?: "participant with no video yet"
+
     /** When [participant]'s last frame arrived (elapsed ms), 0 if none yet. */
     fun lastFrameAt(participant: String): Long = participants[participant]?.lastFrameAt ?: 0L
 
@@ -472,6 +475,12 @@ class VideoEngine(
             if (WaState.groupVideo.value[participant]?.quarterTurns != turns) updateTile(participant) { it.copy(quarterTurns = turns) }
         }
         if (participant !in WaState.groupVideo.value) updateTile(participant) { it }
+        if (d.framesIn == 0) {
+            val tile = WaState.groupVideo.value[participant]
+            WaState.log(
+                "video in (${d.name}): first frame, drawn at ${tile?.quarterTurns} turns, video state says ${tile?.stateTurns ?: "nothing"}",
+            )
+        }
         d.frame(accessUnit)
     }
 

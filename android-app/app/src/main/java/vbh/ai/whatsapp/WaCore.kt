@@ -1226,7 +1226,7 @@ object WaCore : Listener {
         state: Long,
         orientation: Long,
     ) {
-        WaState.log("video state (participant): raw=$state orientation=$orientation")
+        WaState.log("video state (${video.participantName(normalizeJid(participant))}): raw=$state orientation=$orientation")
         // As in 1:1 calls, only 0 and 6 mean the camera went off; other states (2 comes while a
         // call is being set up) leave it as it was.
         val cameraOn =
