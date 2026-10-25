@@ -34,8 +34,8 @@ android {
         applicationId = "vbh.ai.whatsapp"
         minSdk = 34
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.2.2"
+        versionCode = 6
+        versionName = "0.2.3"
         ndk { abiFilters += "arm64-v8a" }
     }
     if (hasReleaseKey) {
