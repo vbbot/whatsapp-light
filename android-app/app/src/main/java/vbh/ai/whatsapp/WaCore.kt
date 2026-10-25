@@ -731,13 +731,17 @@ object WaCore : Listener {
     /** The call ringing now and its caller, for [settleWatchCall]. */
     @Volatile private var ringing: Pair<String, androidx.core.app.Person>? = null
 
+    /** The answered-looking notification is up and will be removed by [settleWatchCall]. */
+    @Volatile private var settling = false
+
     private fun stopRing() {
         ringtone?.stop()
         ringtone = null
         val r = ringing
         ringing = null
         if (r == null) {
-            app.getSystemService(NotificationManager::class.java).cancel(NOTIF_INCOMING)
+            // Declining stops the ringing, then the call's end does again: leave a pending settle be.
+            if (!settling) app.getSystemService(NotificationManager::class.java).cancel(NOTIF_INCOMING)
         } else {
             settleWatchCall(r.first, r.second)
         }
@@ -759,8 +763,9 @@ object WaCore : Listener {
             NotificationCompat
                 .Builder(app, CH_INCOMING)
                 .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+                // Gadgetbridge names the call from this text, as it did the ringing one.
                 .setContentTitle(caller.name)
-                .addPerson(caller)
+                .setContentText(caller.name)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
@@ -768,7 +773,9 @@ object WaCore : Listener {
                 .addAction(0, "Hang up", CallActionReceiver.pending(app, CallActionReceiver.HANG_UP, callID))
                 .build(),
         )
+        settling = true
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            settling = false
             // Unless another call has started ringing since.
             if (ringing == null) nm.cancel(NOTIF_INCOMING)
         }, SETTLE_MS)
