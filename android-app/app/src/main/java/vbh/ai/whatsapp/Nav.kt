@@ -93,6 +93,11 @@ sealed interface Screen {
         val chat: String,
     ) : Screen
 
+    /** Everyone on a group call between chosen people (call log [id]); tap one to open their chat. */
+    data class CallMembers(
+        val id: String,
+    ) : Screen
+
     /** Confirm placing a voice or video call to [chat]. */
     data class CallConfirm(
         val chat: String,

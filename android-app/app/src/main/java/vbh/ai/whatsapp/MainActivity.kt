@@ -244,6 +244,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                is Screen.CallMembers -> {
+                    CallMembersScreen(s.id)
+                }
+
                 is Screen.CallConfirm -> {
                     CallConfirmScreen(s.chat, s.video)
                 }

@@ -273,9 +273,21 @@ private fun CallList() {
                 time = formatRowTime(c.startedAt),
                 // A missed call is the one thing worth flagging, with the same asterisk as unread chats.
                 flagged = c.outcome == CallRecord.Outcome.MISSED,
-                // Group calls can't be made from here yet: open the group's (or the caller's) chat.
-                onClick = { if (c.isGroup) Nav.push(Screen.Thread(c.peer)) else WaCore.call(c.peer) },
-                label = if (c.isGroup) "Open chat with $name" else "Call $name back",
+                // Group calls can't be made from here yet: open the group's chat, or list who was on a
+                // call between chosen people.
+                onClick = {
+                    when {
+                        c.peer.endsWith("@g.us") -> Nav.push(Screen.Thread(c.peer))
+                        c.isGroup -> Nav.push(Screen.CallMembers(c.id))
+                        else -> WaCore.call(c.peer)
+                    }
+                },
+                label =
+                    when {
+                        c.peer.endsWith("@g.us") -> "Open chat with $name"
+                        c.isGroup -> "Who was on the call"
+                        else -> "Call $name back"
+                    },
             )
         }
     }
@@ -554,6 +566,38 @@ fun CallTypeScreen(chat: String) {
         Column(Modifier.weight(1f).fillMaxWidth()) {
             ContactRow(name = "Voice call", subtitle = "audio only") { Nav.push(Screen.CallConfirm(chat, video = false)) }
             ContactRow(name = "Video call", subtitle = "your camera turns on") { Nav.push(Screen.CallConfirm(chat, video = true)) }
+        }
+        Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
+    }
+}
+
+/** Everyone on a group call between chosen people, the caller first; tapping one opens their chat. */
+@Composable
+fun CallMembersScreen(id: String) {
+    val calls by CallLog.calls.collectAsState()
+    val changes by MessageStore.changes.collectAsState()
+    val names by MessageStore.names.collectAsState()
+    val phones by MessageStore.phones.collectAsState()
+    val call = calls.firstOrNull { it.id == id }
+    val members = call?.let { c -> (listOf(c.peer) + c.members.map(::normalizeJid)).distinct() }.orEmpty()
+    val titles = rememberQuery(members, changes, names, phones) { members.associateWith { MessageStore.title(it) } }.orEmpty()
+    ScreenColumn {
+        LightTopBar(
+            leftButton = backButton("calls") { Nav.pop() },
+            center = LightTopBarCenter.Text("On the call"),
+        )
+        LightLazyScrollView(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            scrollBarPosition = LightScrollBarPosition.Inside,
+            uniformItemHeightGridUnits = 4.5f,
+            listState = rememberLazyListState(),
+        ) {
+            items(members, key = { it }) { m ->
+                ContactRow(
+                    name = titles[m] ?: MessageStore.fallbackTitle(m, phones[m]),
+                    subtitle = null,
+                ) { Nav.push(Screen.Thread(m)) }
+            }
         }
         Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
     }
