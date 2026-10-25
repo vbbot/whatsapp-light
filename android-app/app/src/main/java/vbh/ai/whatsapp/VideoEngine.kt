@@ -458,7 +458,10 @@ class VideoEngine(
                 RemoteDecoder(
                     "participant ${participants.size + 1}",
                     onFirstShown = { onRemoteFrameShown?.invoke() },
-                    onSize = { w, h -> updateTile(participant) { it.copy(width = w, height = h) } },
+                    onSize = { w, h ->
+                        WaState.log("video in (${participantName(participant)}): picture is ${w}x$h")
+                        updateTile(participant) { it.copy(width = w, height = h) }
+                    },
                 )
             }
         // Their packets may carry a counter-clockwise turn, as in 1:1 calls; usually in a group
