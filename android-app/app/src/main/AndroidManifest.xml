@@ -38,5 +38,8 @@
         <receiver
             android:name=".KeepAliveReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".CallActionReceiver"
+            android:exported="false" />
     </application>
 </manifest>
