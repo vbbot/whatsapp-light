@@ -97,7 +97,10 @@ private const val PHONE_WAIT_MS = 15_000L
  * from a photo comes back to the same place.
  */
 @Composable
-fun ThreadScreen(chat: String) {
+fun ThreadScreen(
+    chat: String,
+    focus: String? = null,
+) {
     val isGroup = chat.endsWith("@g.us")
     val title = rememberTitle(chat)
     val error by WaState.error.collectAsState()
@@ -156,6 +159,18 @@ fun ThreadScreen(chat: String) {
         }
         if (msgs.none { it.id == original.id }) limit = maxOf(limit, MessageStore.countSince(chat, original.ts) + THREAD_PAGE)
         jumpTo = original.id
+    }
+    // Opened from a search result: go to that message once, as for a tapped quote.
+    var focused by rememberSaveable(chat, focus) { mutableStateOf(false) }
+    LaunchedEffect(focus) {
+        if (focus == null || focused) return@LaunchedEffect
+        focused = true
+        val m =
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                MessageStore.get(focus)?.takeIf { it.chat == chat }?.let { it to MessageStore.countSince(chat, it.ts) }
+            } ?: return@LaunchedEffect
+        limit = maxOf(limit, m.second + THREAD_PAGE)
+        jumpTo = m.first.id
     }
     val waitingForPhone = loadOlderAtTop(chat, listState, page, connected, onLoadStoredPage = { limit += THREAD_PAGE })
 

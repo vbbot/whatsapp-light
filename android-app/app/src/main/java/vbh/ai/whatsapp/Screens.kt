@@ -144,6 +144,7 @@ fun HomeScreen() {
     val error by WaState.error.collectAsState()
     ScreenColumn {
         LightTopBar(
+            leftButton = if (tab == Tab.MESSAGES) icon(LightIcons.SEARCH, "Search messages") { Nav.push(Screen.Search) } else null,
             center = LightTopBarCenter.Text(tab.label),
             rightButton = icon(LightIcons.SETTINGS, "Settings") { Nav.push(Screen.Settings) },
         )
@@ -968,5 +969,80 @@ fun InCallScreen(
                     icon(LightIcons.DENY, "End call") { WaCore.hangup() },
                 ),
         )
+    }
+}
+
+// ---------------------------------------------------------------- search
+
+/**
+ * Messages in any chat that contain [query], newest first: the chat, when, and the words around
+ * the match on one line (with who wrote it, in groups and for ours). Tapping one opens its chat at it.
+ */
+@Composable
+fun SearchResultsScreen(query: String) {
+    val changes by MessageStore.changes.collectAsState()
+    val names by MessageStore.names.collectAsState()
+    val results =
+        rememberQuery(query, changes, names) {
+            MessageStore.search(query).map { m ->
+                val who = if (m.fromMe || m.isGroup) Replies.authorName(if (m.fromMe) "me" else m.sender, m.chat) + ": " else ""
+                SearchResult(m, MessageStore.title(m.chat), who + searchSnippet(m.searchText, query))
+            }
+        }
+    ScreenColumn {
+        LightTopBar(
+            leftButton = backButton("search") { Nav.pop() },
+            center = LightTopBarCenter.Text("“$query”"),
+        )
+        Box(Modifier.weight(1f)) {
+            when {
+                results == null -> {}
+
+                results.isEmpty() -> {
+                    StatusText("No messages found.")
+                }
+
+                else -> {
+                    LightLazyScrollView(
+                        scrollBarPosition = LightScrollBarPosition.Inside,
+                        // One line of snippet, like a call row, so every row is the same height.
+                        uniformItemHeightGridUnits = 6f,
+                        listState = rememberLazyListState(),
+                    ) {
+                        items(results, key = { it.m.id }) { r ->
+                            SearchRow(r) { Nav.push(Screen.Thread(r.m.chat, focus = r.m.id)) }
+                        }
+                    }
+                }
+            }
+        }
+        Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
+    }
+}
+
+private class SearchResult(
+    val m: Msg,
+    val title: String,
+    val snippet: String,
+)
+
+@Composable
+private fun SearchRow(
+    r: SearchResult,
+    onClick: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .lightClickable(onClickLabel = "Open ${r.title} at this message", onClick = onClick)
+            .padding(start = 2f.gridUnitsAsDp(), end = ROW_END_GU.gridUnitsAsDp(), top = 10.dp, bottom = 10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                LightText(text = r.title, variant = LightTextVariant.Heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            LightText(text = formatRowTime(r.m.ts), variant = LightTextVariant.Fine)
+        }
+        LightText(text = r.snippet, variant = LightTextVariant.Detail, lighten = true, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

@@ -196,7 +196,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 is Screen.Thread -> {
-                    ThreadScreen(s.chat)
+                    ThreadScreen(s.chat, s.focus)
                 }
 
                 is Screen.Composer -> {
@@ -213,6 +213,14 @@ class MainActivity : ComponentActivity() {
 
                 is Screen.Number -> {
                     NumberScreen(s.purpose)
+                }
+
+                Screen.Search -> {
+                    SearchScreen()
+                }
+
+                is Screen.SearchResults -> {
+                    SearchResultsScreen(s.query)
                 }
 
                 Screen.Settings -> {

@@ -44,6 +44,13 @@ class FormatTest {
         assertTrue(formatMessageTime(System.currentTimeMillis()).matches(Regex("\\d{1,2}:\\d\\d [AP]M")))
     }
 
+    @Test fun searchSnippetStartsNearTheMatchOnOneLine() {
+        assertEquals("see you at lunch", searchSnippet("see you\nat  lunch", "lunch"))
+        val long = "We talked about a lot of things yesterday evening, and then the lunch plan came up"
+        assertEquals("…yesterday evening, and then the lunch plan came up", searchSnippet(long, "LUNCH"))
+        assertEquals("no match here", searchSnippet("no match here", "zzz"))
+    }
+
     @Test fun clockShowsMinutesWithoutPaddingAndHoursWhenLong() {
         assertEquals("0:00", formatClock(0))
         assertEquals("0:42", formatClock(42_900))

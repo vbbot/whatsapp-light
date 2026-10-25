@@ -72,6 +72,25 @@ fun formatClock(ms: Long): String {
 /** A video's label in the thread: "Video · 0:42", or "Video" while its length isn't known. */
 fun videoLabel(seconds: Int): String = if (seconds > 0) "Video · ${formatClock(seconds * 1000L)}" else "Video"
 
+/** How many characters of a search result's text come before the match. */
+private const val SNIPPET_LEAD = 24
+
+/**
+ * The part of [text] a search result shows: from a little before the first match of [query]
+ * (with "…" when it starts mid-text), on one line.
+ */
+fun searchSnippet(
+    text: String,
+    query: String,
+): String {
+    val flat = text.replace(Regex("\\s+"), " ").trim()
+    val at = flat.indexOf(query.trim(), ignoreCase = true)
+    if (at <= SNIPPET_LEAD) return flat
+    // Start at a word boundary within the lead, so the snippet doesn't open mid-word.
+    val from = flat.lastIndexOf(' ', at - SNIPPET_LEAD).let { if (it < 0) at - SNIPPET_LEAD else it + 1 }
+    return "…" + flat.substring(from)
+}
+
 /** A voice message's line in the thread: "Voice message · 0:12", or without the length while it isn't known. */
 fun voiceLabel(seconds: Int): String = if (seconds > 0) "Voice message · ${formatClock(seconds * 1000L)}" else "Voice message"
 
