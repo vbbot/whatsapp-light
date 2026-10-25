@@ -92,8 +92,19 @@ class MainActivity : ComponentActivity() {
             pendingMic = null
         }
 
+    companion object {
+        /** Whether the app is on screen, so an incoming call needn't open it. */
+        @Volatile var resumed = false
+    }
+
+    override fun onPause() {
+        super.onPause()
+        resumed = false
+    }
+
     override fun onResume() {
         super.onResume()
+        resumed = true
         // Permissions may have changed in the system settings meanwhile.
         Permissions.refresh(this)
     }
