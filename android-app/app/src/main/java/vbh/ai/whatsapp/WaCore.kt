@@ -938,7 +938,7 @@ object WaCore : Listener {
      * screen is off or its own lock screen shows; otherwise it shows a heads-up notification,
      * which LightOS doesn't draw (and a lock screen from another app doesn't count as locked).
      * Allowed to draw over other apps, the app may start its screen itself, which then turns
-     * the screen on ([MainActivity]'s turnScreenOn).
+     * the screen on (while a call is on, [MainActivity] shows over the lock screen and turns it on).
      */
     private fun showCallScreen() {
         val interactive = app.getSystemService(android.os.PowerManager::class.java).isInteractive
