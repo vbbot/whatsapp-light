@@ -128,12 +128,15 @@ fun EditMessageScreen(
     )
 }
 
-/** Typing what to search for; SEARCH lists the messages that contain it. The text stays for going back to change it. */
+/**
+ * Typing what to search for; SEARCH lists the people and groups it matches, then the messages
+ * that contain it. The text stays for going back to change it.
+ */
 @Composable
 fun SearchScreen() {
     val state = rememberTextFieldState()
     MessageEditor(
-        title = "Search messages",
+        title = "Search",
         state = state,
         header = null,
         onSubmit = { text ->

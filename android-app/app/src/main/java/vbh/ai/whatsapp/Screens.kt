@@ -144,7 +144,14 @@ fun HomeScreen() {
     val error by WaState.error.collectAsState()
     ScreenColumn {
         LightTopBar(
-            leftButton = if (tab == Tab.MESSAGES) icon(LightIcons.SEARCH, "Search messages") { Nav.push(Screen.Search) } else null,
+            leftButton =
+                if (tab ==
+                    Tab.MESSAGES
+                ) {
+                    icon(LightIcons.SEARCH, "Search people and messages") { Nav.push(Screen.Search) }
+                } else {
+                    null
+                },
             center = LightTopBarCenter.Text(tab.label),
             rightButton = icon(LightIcons.SETTINGS, "Settings") { Nav.push(Screen.Settings) },
         )
@@ -453,6 +460,25 @@ fun NumberScreen(purpose: Purpose) {
 
 // ---------------------------------------------------------------- contact picker
 
+/**
+ * Saved contacts, plus anyone already chatted with or called who isn't one: named people
+ * alphabetically, bare numbers after them. Reads the store: off the main thread.
+ */
+fun knownPeople(
+    contacts: List<Contact>,
+    calls: List<CallRecord>,
+    phones: Map<String, String>,
+): List<Contact> {
+    val known = contacts.map { it.chat }.toSet()
+    val others =
+        (MessageStore.chats().map { it.chat } + calls.map { it.peer })
+            .distinct()
+            .filter { it !in known && !it.endsWith("@g.us") }
+            .map { Contact(it, MessageStore.title(it), phones[it].orEmpty()) }
+            .filter { it.name != "Unknown contact" }
+    return (contacts + others).sortedWith(compareBy({ it.name.startsWith("+") }, { it.name.lowercase() }))
+}
+
 /** Pick someone to message or call. The first row is always "Enter a number". */
 @Composable
 fun ContactsScreen(purpose: Purpose) {
@@ -465,19 +491,7 @@ fun ContactsScreen(purpose: Purpose) {
     val connected by WaState.connected.collectAsState()
     LaunchedEffect(connected) { if (connected) WaCore.loadContacts() }
 
-    // Saved contacts, plus anyone already chatted with or called who isn't a saved contact.
-    val entries =
-        rememberQuery(contacts, changes, calls, names, phones) {
-            val known = contacts.map { it.chat }.toSet()
-            val others =
-                (MessageStore.chats().map { it.chat } + calls.map { it.peer })
-                    .distinct()
-                    .filter { it !in known && !it.endsWith("@g.us") }
-                    .map { Contact(it, MessageStore.title(it), phones[it].orEmpty()) }
-                    .filter { it.name != "Unknown contact" }
-            // Named people alphabetically, bare numbers after them.
-            (contacts + others).sortedWith(compareBy({ it.name.startsWith("+") }, { it.name.lowercase() }))
-        } ?: contacts
+    val entries = rememberQuery(contacts, changes, calls, names, phones) { knownPeople(contacts, calls, phones) } ?: contacts
     val listState = rememberLazyListState()
     val title = if (purpose == Purpose.CALL) "New call" else "New chat"
     val back = if (purpose == Purpose.CALL) "calls" else "messages"
@@ -975,19 +989,38 @@ fun InCallScreen(
 // ---------------------------------------------------------------- search
 
 /**
- * Messages in any chat that contain [query], newest first: the chat, when, and the words around
- * the match on one line (with who wrote it, in groups and for ours). Tapping one opens its chat at it.
+ * One search for everything: people and groups whose name (or number) matches [query] first,
+ * then the messages in any chat that contain it, newest first, each with the chat, when, and
+ * the words around the match on one line (with who wrote it, in groups and for ours). Tapping a
+ * person or group opens their chat; tapping a message opens its chat at it.
  */
 @Composable
 fun SearchResultsScreen(query: String) {
     val changes by MessageStore.changes.collectAsState()
     val names by MessageStore.names.collectAsState()
+    val phones by MessageStore.phones.collectAsState()
+    val calls by CallLog.calls.collectAsState()
+    val contacts by WaState.contacts.collectAsState()
+    val connected by WaState.connected.collectAsState()
+    LaunchedEffect(connected) { if (connected) WaCore.loadContacts() }
     val results =
-        rememberQuery(query, changes, names) {
-            MessageStore.search(query).map { m ->
-                val who = if (m.fromMe || m.isGroup) Replies.authorName(if (m.fromMe) "me" else m.sender, m.chat) + ": " else ""
-                SearchResult(m, MessageStore.title(m.chat), who + searchSnippet(m.searchText, query))
-            }
+        rememberQuery(query, changes, names, phones, calls, contacts) {
+            val people =
+                (
+                    knownPeople(contacts, calls, phones) +
+                        MessageStore.chats().filter { it.chat.endsWith("@g.us") }.map {
+                            Contact(it.chat, MessageStore.title(it.chat), "")
+                        }
+                ).distinctBy { it.chat }
+                    .filter { matchesPerson(it, query) }
+                    .take(SEARCH_PEOPLE_LIMIT)
+                    .map { c -> SearchResult(c.chat, null, c.name, personSubtitle(c), 0L) }
+            val messages =
+                MessageStore.search(query).map { m ->
+                    val who = if (m.fromMe || m.isGroup) Replies.authorName(if (m.fromMe) "me" else m.sender, m.chat) + ": " else ""
+                    SearchResult(m.chat, m.id, MessageStore.title(m.chat), who + searchSnippet(m.searchText, query), m.ts)
+                }
+            people + messages
         }
     ScreenColumn {
         LightTopBar(
@@ -999,18 +1032,18 @@ fun SearchResultsScreen(query: String) {
                 results == null -> {}
 
                 results.isEmpty() -> {
-                    StatusText("No messages found.")
+                    StatusText("Nothing found.")
                 }
 
                 else -> {
                     LightLazyScrollView(
                         scrollBarPosition = LightScrollBarPosition.Inside,
-                        // One line of snippet, like a call row, so every row is the same height.
+                        // One line under each name, so every row is the same height.
                         uniformItemHeightGridUnits = 6f,
                         listState = rememberLazyListState(),
                     ) {
-                        items(results, key = { it.m.id }) { r ->
-                            SearchRow(r) { Nav.push(Screen.Thread(r.m.chat, focus = r.m.id)) }
+                        items(results, key = { it.messageId ?: "chat:${it.chat}" }) { r ->
+                            SearchRow(r) { Nav.push(Screen.Thread(r.chat, focus = r.messageId)) }
                         }
                     }
                 }
@@ -1020,10 +1053,38 @@ fun SearchResultsScreen(query: String) {
     }
 }
 
+/** At most this many people and groups head the results. */
+private const val SEARCH_PEOPLE_LIMIT = 20
+
+/** A person or group matches by name, ignoring case, or (from 3 digits typed) by number. */
+fun matchesPerson(
+    c: Contact,
+    query: String,
+): Boolean {
+    val q = query.trim()
+    if (q.isEmpty()) return false
+    if (c.name.contains(q, ignoreCase = true)) return true
+    // A number as typed, with or without "+", spaces or dashes.
+    if (!q.all { it.isDigit() || it in "+ -()" }) return false
+    val digits = q.filter { it.isDigit() }
+    val number = c.phone.ifEmpty { displayNumber(c.chat) }.filter { it.isDigit() }
+    return digits.length >= 3 && number.contains(digits)
+}
+
+/** Under a person's or group's name in the results: "group", or their number. */
+private fun personSubtitle(c: Contact): String =
+    when {
+        c.chat.endsWith("@g.us") -> "group"
+        else -> c.phone.ifEmpty { displayNumber(c.chat) }.ifEmpty { "contact" }
+    }
+
+/** A search result: a person or group ([messageId] null), or a message in [chat]. */
 private class SearchResult(
-    val m: Msg,
+    val chat: String,
+    val messageId: String?,
     val title: String,
-    val snippet: String,
+    val line: String,
+    val ts: Long,
 )
 
 @Composable
@@ -1034,15 +1095,24 @@ private fun SearchRow(
     Column(
         Modifier
             .fillMaxWidth()
-            .lightClickable(onClickLabel = "Open ${r.title} at this message", onClick = onClick)
-            .padding(start = 2f.gridUnitsAsDp(), end = ROW_END_GU.gridUnitsAsDp(), top = 10.dp, bottom = 10.dp),
+            .lightClickable(
+                onClickLabel =
+                    if (r.messageId ==
+                        null
+                    ) {
+                        "Open chat with ${r.title}"
+                    } else {
+                        "Open ${r.title} at this message"
+                    },
+                onClick = onClick,
+            ).padding(start = 2f.gridUnitsAsDp(), end = ROW_END_GU.gridUnitsAsDp(), top = 10.dp, bottom = 10.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) {
                 LightText(text = r.title, variant = LightTextVariant.Heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            LightText(text = formatRowTime(r.m.ts), variant = LightTextVariant.Fine)
+            if (r.messageId != null) LightText(text = formatRowTime(r.ts), variant = LightTextVariant.Fine)
         }
-        LightText(text = r.snippet, variant = LightTextVariant.Detail, lighten = true, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        LightText(text = r.line, variant = LightTextVariant.Detail, lighten = true, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
