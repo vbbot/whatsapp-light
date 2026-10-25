@@ -20,6 +20,7 @@ class ChatDbUpgradeTest {
         // As version 6 left it: chats without reacted_at.
         db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '')")
         db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, text TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE calls (id TEXT PRIMARY KEY, peer TEXT NOT NULL)")
         ChatDb(
             androidx.test.core.app.ApplicationProvider
                 .getApplicationContext(),
@@ -31,11 +32,23 @@ class ChatDbUpgradeTest {
     @Test fun aVersion7DatabaseGainsEditedAt() {
         val db = SQLiteDatabase.create(null)
         db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, text TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE calls (id TEXT PRIMARY KEY, peer TEXT NOT NULL)")
         ChatDb(
             androidx.test.core.app.ApplicationProvider
                 .getApplicationContext(),
             null,
         ).onUpgrade(db, 7, ChatDb.VERSION)
         assertTrue("edited_at" in columns(db, "messages"))
+    }
+
+    @Test fun aVersion8DatabaseGainsCallMembers() {
+        val db = SQLiteDatabase.create(null)
+        db.execSQL("CREATE TABLE calls (id TEXT PRIMARY KEY, peer TEXT NOT NULL)")
+        ChatDb(
+            androidx.test.core.app.ApplicationProvider
+                .getApplicationContext(),
+            null,
+        ).onUpgrade(db, 8, ChatDb.VERSION)
+        assertTrue("members" in columns(db, "calls"))
     }
 }

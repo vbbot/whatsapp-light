@@ -827,7 +827,7 @@ func (c *Client) current(id string) *meowcaller.Call {
 func (c *Client) onIncoming(call *meowcaller.Call) {
 	c.attach(call)
 	if _, ok := call.GroupState(); ok {
-		c.reportGroup(call)
+		c.reportGroup(call, call.Peer(), "")
 		c.receiveGroupVideo(call)
 	}
 	c.l.OnIncomingCall(call.ID(), c.canonical(call.Peer(), nil).String(), call.IsVideo())

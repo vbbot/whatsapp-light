@@ -46,4 +46,30 @@ class GroupCallTest {
         assertEquals(listOf("p1", "p2", "p3", "p4"), videoTiles(frames, listOf("p6", "p5", "p4", "p3", "p2", "p1"), now).sorted())
         assertEquals(listOf("p4", "p3", "p2", "p1"), videoTiles(frames, listOf("p6", "p5", "p4", "p3", "p2", "p1"), now))
     }
+
+    @Test fun groupCallsSayWhatKindTheyWere() {
+        val answered =
+            CallRecord(
+                "C",
+                "g@g.us",
+                incoming = true,
+                startedAt = 0,
+                answeredAt = 1_000,
+                endedAt = 61_000,
+                outcome = CallRecord.Outcome.ANSWERED,
+            )
+        assertEquals("group · incoming · 01:00", answered.summary)
+        assertEquals("group video · missed", answered.copy(video = true, outcome = CallRecord.Outcome.MISSED).summary)
+        val chosen =
+            CallRecord(
+                "D",
+                "1@lid",
+                incoming = true,
+                startedAt = 0,
+                members = listOf("1@lid", "2@lid"),
+                outcome = CallRecord.Outcome.MISSED,
+            )
+        assertEquals("group · missed", chosen.summary)
+        assertEquals("missed", chosen.copy(members = emptyList()).summary)
+    }
 }

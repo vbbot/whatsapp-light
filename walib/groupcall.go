@@ -1,6 +1,8 @@
 package walib
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"github.com/polymorfa/hypermeow/types"
@@ -38,17 +40,52 @@ func groupMembers(state meowcaller.GroupCallState, creator, self types.JID, cano
 	return strings.Join(all, ","), strings.Join(in, ",")
 }
 
-// reportGroup tells the app a group call's group and members, now and as they change.
-func (c *Client) reportGroup(call *meowcaller.Call) {
-	creator := call.Peer()
+// CallGroup places a voice or video call to everyone in a group chat (its @g.us JID). Returns
+// the call ID.
+func (c *Client) CallGroup(group string, video bool) (string, error) {
+	call, err := c.mc.GroupCallByIDWithOptions(context.Background(), group, meowcaller.GroupCallOptions{Video: video})
+	if err != nil {
+		return "", fmt.Errorf("place group call: %w", err)
+	}
+	c.placedGroup(call, group)
+	return call.ID(), nil
+}
+
+// CallPeople places a group call to chosen people (JIDs, comma-separated), not bound to a group
+// chat. Returns the call ID.
+func (c *Client) CallPeople(targets string, video bool) (string, error) {
+	var list []string
+	for _, t := range strings.Split(targets, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			list = append(list, t)
+		}
+	}
+	call, err := c.mc.GroupCallWithOptions(context.Background(), list, meowcaller.GroupCallOptions{Video: video})
+	if err != nil {
+		return "", fmt.Errorf("place group call: %w", err)
+	}
+	c.placedGroup(call, "")
+	return call.ID(), nil
+}
+
+// placedGroup wires up a group call we placed: we're its creator, and group is its chat, if any.
+func (c *Client) placedGroup(call *meowcaller.Call, group string) {
+	c.attach(call)
+	c.receiveGroupVideo(call)
+	c.reportGroup(call, c.wa.Store.GetLID(), group)
+}
+
+// reportGroup tells the app a group call's group and members, now and as they change. creator
+// is who started the call; group is its chat when the call's state doesn't say.
+func (c *Client) reportGroup(call *meowcaller.Call, creator types.JID, group string) {
 	canon := func(j types.JID) types.JID { return c.canonical(j, nil) }
 	report := func(s meowcaller.GroupCallState) {
 		members, joined := groupMembers(s, creator, c.wa.Store.GetLID(), canon)
-		group := ""
+		g := group
 		if !s.GroupJID.IsEmpty() {
-			group = s.GroupJID.String()
+			g = s.GroupJID.String()
 		}
-		c.l.OnGroupCall(call.ID(), group, members, joined)
+		c.l.OnGroupCall(call.ID(), g, members, joined)
 	}
 	if s, ok := call.GroupState(); ok {
 		report(s)

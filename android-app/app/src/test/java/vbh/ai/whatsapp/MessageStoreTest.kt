@@ -174,6 +174,11 @@ class MessageStoreTest {
                     "read_sent INTEGER NOT NULL DEFAULT 0, media TEXT NOT NULL DEFAULT '')",
             )
             old.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '')")
+            old.execSQL(
+                "CREATE TABLE calls (id TEXT PRIMARY KEY, peer TEXT NOT NULL, incoming INTEGER NOT NULL, started_at INTEGER NOT NULL, " +
+                    "answered_at INTEGER NOT NULL DEFAULT 0, ended_at INTEGER NOT NULL DEFAULT 0, outcome TEXT NOT NULL, " +
+                    "video INTEGER NOT NULL DEFAULT 0)",
+            )
             old.execSQL("INSERT INTO messages(id, chat, sender, text, ts, from_me, is_group) VALUES('1', 'a@lid', 'a@lid', 'old', 5, 0, 0)")
             old.version = 1
         }
