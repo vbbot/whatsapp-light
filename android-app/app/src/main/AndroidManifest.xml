@@ -17,8 +17,6 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Wakes the app every few minutes to check the connection (see KeepAliveReceiver). -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <!-- Calls are registered with Android's call system as self-managed calls (CallTelecom). -->
-    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
 
     <application
         android:allowBackup="false"
@@ -37,14 +35,6 @@
             android:name=".WaService"
             android:exported="false"
             android:foregroundServiceType="remoteMessaging|microphone" />
-        <service
-            android:name=".WaConnectionService"
-            android:exported="true"
-            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
-            <intent-filter>
-                <action android:name="android.telecom.ConnectionService" />
-            </intent-filter>
-        </service>
         <receiver
             android:name=".KeepAliveReceiver"
             android:exported="false" />
