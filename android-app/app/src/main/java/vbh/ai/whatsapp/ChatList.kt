@@ -3,6 +3,7 @@ package vbh.ai.whatsapp
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalOverscrollFactory
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +35,11 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -394,6 +400,7 @@ internal fun Modifier.lightPressable(
     onTap: () -> Unit,
     onLongPressLabel: String? = null,
     onLongPress: (() -> Unit)? = null,
+    wheelPressOpensOptions: Boolean = false,
 ): Modifier {
     val haptics = LocalHapticFeedback.current
     val hapticsOn = LocalHapticsEnabled.current
@@ -404,6 +411,18 @@ internal fun Modifier.lightPressable(
         if (hapticsOn) haptics.performHapticFeedback(type)
     }
     return this
+        // Reachable with the scroll wheel: pressing it taps, or long-presses with [wheelPressOpensOptions].
+        .onKeyEvent { e ->
+            if (e.key != Key.DirectionCenter && e.key != Key.Enter) return@onKeyEvent false
+            if (e.type == KeyEventType.KeyUp) {
+                val press = if (wheelPressOpensOptions) longPress else tap
+                if (press != null) {
+                    buzz(HapticFeedbackType.LongPress)
+                    press()
+                }
+            }
+            true
+        }.focusable()
         .semantics {
             onClick(onTapLabel) {
                 tap()

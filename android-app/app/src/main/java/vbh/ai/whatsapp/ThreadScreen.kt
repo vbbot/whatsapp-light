@@ -381,8 +381,13 @@ private fun MessageRow(
         Modifier
             .fillMaxWidth()
             .then(if (highlighted) Modifier.background(LightThemeTokens.colors.contentSecondary.copy(alpha = 0.3f)) else Modifier)
-            .lightPressable(onTapLabel = "Message", onTap = {}, onLongPressLabel = "Message options", onLongPress = onLongPress)
-            .padding(
+            .lightPressable(
+                onTapLabel = "Message",
+                onTap = {},
+                onLongPressLabel = "Message options",
+                onLongPress = onLongPress,
+                wheelPressOpensOptions = true,
+            ).padding(
                 start = 1.5f.gridUnitsAsDp(),
                 end = if (m.fromMe) 2.5f.gridUnitsAsDp() else 1.5f.gridUnitsAsDp(),
                 top = if (showTime) 8.dp else 3.dp,

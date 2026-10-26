@@ -704,6 +704,7 @@ fun SettingsScreen() {
     val status by WaState.status.collectAsState()
     val own by WaState.ownNumber.collectAsState()
     val seenStatus by AppSettings.seenStatus.collectAsState()
+    val wheelNavigates by AppSettings.wheelNavigates.collectAsState()
     val granted by Permissions.granted.collectAsState()
     val missing = Perm.entries.count { it !in granted }
     ScreenColumn {
@@ -726,6 +727,12 @@ fun SettingsScreen() {
                     title = "Seen Status",
                     subtitle = "let people see when you've read their messages",
                     onToggle = { AppSettings.setSeenStatus(!seenStatus) },
+                )
+                ToggleRow(
+                    checked = wheelNavigates,
+                    title = "Scroll Wheel Navigation",
+                    subtitle = "turn the wheel to move through the screen and press it to open; off, it sets brightness",
+                    onToggle = { AppSettings.setWheelNavigates(!wheelNavigates) },
                 )
                 // Only while something the app asks for isn't allowed.
                 if (missing > 0) {
