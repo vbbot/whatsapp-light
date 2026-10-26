@@ -640,6 +640,21 @@ func (c *Client) Connect() error {
 	return waitReady(ctx, c.wa, 3*time.Minute)
 }
 
+// PairPhone asks WhatsApp for a code that links this device when it's entered on the main phone
+// (Linked devices, Link with phone number instead), as an alternative to scanning the QR code.
+// [phone] is the main phone's number with its country code. Only while unpaired, after Connect
+// has delivered a first QR code. Call from a background thread.
+func (c *Client) PairPhone(phone string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// The display name must be a common "Browser (OS)" pair, or the server refuses it.
+	code, err := c.wa.PairPhone(ctx, phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	if err != nil {
+		return "", fmt.Errorf("pair phone: %w", err)
+	}
+	return code, nil
+}
+
 // connected runs on every (re)connection: presence doesn't survive a reconnect, so announce it
 // again, then tell the app.
 func (c *Client) connected() {

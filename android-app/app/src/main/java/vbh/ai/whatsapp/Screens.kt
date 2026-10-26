@@ -808,8 +808,39 @@ private fun SettingRow(
 
 // ---------------------------------------------------------------- pairing
 
+/** How the pairing screen links this phone: the QR code, typing the main phone's number, or the code for it. */
+private sealed interface Linking {
+    data object Qr : Linking
+
+    data object EnterNumber : Linking
+
+    data object Asking : Linking
+
+    data class Code(
+        val code: String,
+    ) : Linking
+
+    data class Failed(
+        val why: String,
+    ) : Linking
+}
+
 @Composable
 fun PairingScreen(code: String?) {
+    var linking by remember { mutableStateOf<Linking>(Linking.Qr) }
+    if (linking == Linking.EnterNumber) {
+        PairingNumberScreen(
+            onBack = { linking = Linking.Qr },
+            onNumber = { number ->
+                linking = Linking.Asking
+                WaCore.pairPhone(number) { pairing, error ->
+                    linking = if (pairing != null) Linking.Code(pairing) else Linking.Failed(error.orEmpty())
+                }
+            },
+        )
+        return
+    }
+    androidx.activity.compose.BackHandler(enabled = linking != Linking.Qr) { linking = Linking.Qr }
     val notice by WaState.loggedOutNotice.collectAsState()
     val bmp = remember(code) { code?.let { qrBitmap(it) } }
     ScreenColumn {
@@ -828,23 +859,91 @@ fun PairingScreen(code: String?) {
                     modifier = Modifier.padding(bottom = 1.5f.gridUnitsAsDp()),
                 )
             }
-            if (bmp != null) {
-                // A QR needs its light quiet zone: black-on-black would not scan.
-                Image(bmp.asImageBitmap(), contentDescription = "Pairing code", modifier = Modifier.size(15f.gridUnitsAsDp()))
-            } else {
-                Box(Modifier.size(15f.gridUnitsAsDp()), contentAlignment = Alignment.Center) {
+            when (val l = linking) {
+                is Linking.Code -> {
+                    LightText(text = l.code, variant = LightTextVariant.Title, align = TextAlign.Center)
+                    LightText(
+                        text =
+                            "On your other phone, tap the notification from WhatsApp, or open Settings, Linked devices, " +
+                                "Link a device, Link with phone number instead. Then enter this code.",
+                        variant = LightTextVariant.Detail,
+                        align = TextAlign.Center,
+                        modifier = Modifier.padding(top = 1f.gridUnitsAsDp()),
+                    )
+                }
+
+                Linking.Asking -> {
                     LightText(text = "getting a code…", variant = LightTextVariant.Detail, lighten = true)
                 }
+
+                else -> {
+                    if (bmp != null) {
+                        // A QR needs its light quiet zone: black-on-black would not scan.
+                        Image(bmp.asImageBitmap(), contentDescription = "Pairing code", modifier = Modifier.size(15f.gridUnitsAsDp()))
+                    } else {
+                        Box(Modifier.size(15f.gridUnitsAsDp()), contentAlignment = Alignment.Center) {
+                            LightText(text = "getting a code…", variant = LightTextVariant.Detail, lighten = true)
+                        }
+                    }
+                    LightText(
+                        text = "Open WhatsApp on your other phone, then Settings, Linked devices, Link a device.",
+                        variant = LightTextVariant.Detail,
+                        align = TextAlign.Center,
+                        modifier = Modifier.padding(top = 1f.gridUnitsAsDp()),
+                    )
+                    if (l is Linking.Failed) {
+                        LightText(
+                            text = "Couldn't get a code (${l.why}). Try again, or scan the QR code.",
+                            variant = LightTextVariant.Detail,
+                            lighten = true,
+                            align = TextAlign.Center,
+                            modifier = Modifier.padding(top = 1f.gridUnitsAsDp()),
+                        )
+                    }
+                }
             }
-            LightText(
-                text = "Open WhatsApp on your other phone, then Settings, Linked devices, Link a device.",
-                variant = LightTextVariant.Detail,
-                align = TextAlign.Center,
-                modifier = Modifier.padding(top = 1f.gridUnitsAsDp()),
-            )
+        }
+        // The number only works once WhatsApp is waiting for a link, which the QR code shows.
+        if (bmp != null) {
+            Box(Modifier.padding(bottom = 1f.gridUnitsAsDp())) {
+                if (linking == Linking.Qr || linking is Linking.Failed) {
+                    ToggleButton("LINK WITH PHONE NUMBER") { linking = Linking.EnterNumber }
+                } else if (linking is Linking.Code) {
+                    ToggleButton("SHOW QR CODE") { linking = Linking.Qr }
+                }
+            }
         }
         Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
     }
+}
+
+/** Typing the main phone's number, to link with a code instead of the QR code. */
+@Composable
+private fun PairingNumberScreen(
+    onBack: () -> Unit,
+    onNumber: (String) -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val state = rememberTextFieldState("")
+    LightTextInputEditor(
+        title = "Your phone number",
+        state = state,
+        keyboardOptionsFlow = keyboardOptions,
+        onSubmit = { text ->
+            val digits = normalizeNumber(text.toString())
+            if (digits == null) {
+                android.widget.Toast
+                    .makeText(context, "Enter the number with its country code", android.widget.Toast.LENGTH_SHORT)
+                    .show()
+            } else {
+                onNumber(digits)
+            }
+        },
+        onBack = onBack,
+        submitLabel = "Get code",
+        submitIcon = LightIcons.ARROW_RIGHT,
+        singleLine = true,
+    )
 }
 
 private fun qrBitmap(

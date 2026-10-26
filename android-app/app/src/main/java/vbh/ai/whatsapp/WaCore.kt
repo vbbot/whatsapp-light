@@ -304,6 +304,24 @@ object WaCore : Listener {
         }
     }
 
+    /**
+     * Asks for a code that links this phone when entered on the main phone, whose number is
+     * [number] (digits with the country code). [done] gets the code, or null and why not.
+     */
+    fun pairPhone(
+        number: String,
+        done: (code: String?, error: String?) -> Unit,
+    ) {
+        val cl = client ?: return done(null, "not connected yet")
+        thread(name = "wa-pair-phone") {
+            val result = runCatching { cl.pairPhone(number) }
+            result.exceptionOrNull()?.let { WaState.log("pairing code failed: ${it.message}") }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                done(result.getOrNull(), result.exceptionOrNull()?.message)
+            }
+        }
+    }
+
     /** Maps a typed number to the chat key WhatsApp uses for that person, then calls [done] on the main thread. */
     fun canonicalChat(
         number: String,
