@@ -191,26 +191,38 @@ private fun ChatRows(
     val reveal = rememberArchivedReveal(listState, enabled = archivedCount > 0)
     // No stretch overscroll: at the top, pulling down reveals Archived instead.
     CompositionLocalProvider(LocalOverscrollFactory provides null) {
-        LightLazyScrollView(
-            modifier = Modifier.nestedScroll(reveal.connection),
-            scrollBarPosition = LightScrollBarPosition.Inside,
-            uniformItemHeightGridUnits = ROW_GU,
-            listState = listState,
-        ) {
-            if (archivedCount > 0) archivedHeader(reveal, archivedCount)
-            items(rows, key = { it.first.chat }) { (summary, name) ->
-                ChatRow(
-                    name = name,
-                    time = formatRowTime(summary.last.ts),
-                    unread = summary.unread,
-                    muted = summary.muted,
-                    pinned = summary.pinned,
-                    community = summary.isCommunity,
-                    onOpen = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.Thread(summary.chat)) },
-                    // A community has no options of its own: its groups each have theirs.
-                    onOptions = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.ChatOptions(summary.chat)) },
-                )
-            }
+        WheelListScope(listState, skip = setOf("archived")) { ChatRowList(rows, listState, reveal, archivedCount) }
+    }
+}
+
+@Composable
+private fun ChatRowList(
+    rows: List<Pair<ChatSummary, String>>,
+    listState: LazyListState,
+    reveal: ArchivedReveal,
+    archivedCount: Int,
+) {
+    LightLazyScrollView(
+        modifier = Modifier.nestedScroll(reveal.connection),
+        scrollBarPosition = LightScrollBarPosition.Inside,
+        uniformItemHeightGridUnits = ROW_GU,
+        listState = listState,
+    ) {
+        if (archivedCount > 0) archivedHeader(reveal, archivedCount)
+        items(rows, key = { it.first.chat }) { (summary, name) ->
+            val open = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.Thread(summary.chat)) }
+            ChatRow(
+                modifier = Modifier.wheelRow(summary.chat, open),
+                name = name,
+                time = formatRowTime(summary.last.ts),
+                unread = summary.unread,
+                muted = summary.muted,
+                pinned = summary.pinned,
+                community = summary.isCommunity,
+                onOpen = open,
+                // A community has no options of its own: its groups each have theirs.
+                onOptions = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.ChatOptions(summary.chat)) },
+            )
         }
     }
 }
@@ -336,9 +348,10 @@ private fun ChatRow(
     community: Boolean = false,
     onOpen: () -> Unit,
     onOptions: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .lightPressable(
                 onTapLabel = if (community) "Open community $name" else "Open chat with $name",

@@ -3,6 +3,8 @@ package vbh.ai.whatsapp
 import android.Manifest
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -109,16 +111,30 @@ class MainActivity : ComponentActivity() {
         @Volatile var resumed = false
     }
 
+    /** Whether the scroll wheel navigates the app (its setting), so the app claims it from Luma while in front. */
+    private var wheelWanted = false
+
     override fun onPause() {
         super.onPause()
         resumed = false
+        if (wheelWanted) ScrollWheel.claim(this, false)
     }
 
     override fun onResume() {
         super.onResume()
         resumed = true
+        if (wheelWanted) ScrollWheel.claim(this, true)
         // Permissions may have changed in the system settings meanwhile.
         Permissions.refresh(this)
+    }
+
+    // With the setting on, the wheel is the app's on every screen; where there's no list it does nothing.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        (wheelWanted && ScrollWheel.onKey(event, lifecycleScope)) || super.dispatchKeyEvent(event)
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) ScrollWheel.touched()
+        return super.dispatchTouchEvent(event)
     }
 
     /** Starts the connection, or restarts the service so it can claim the microphone once allowed. */
@@ -155,6 +171,12 @@ class MainActivity : ComponentActivity() {
         // Back never hangs up: during a call it only sends the app to the background.
         BackHandler(enabled = call != null) { moveTaskToBack(true) }
         BackHandler(enabled = call == null && stack.size > 1) { Nav.pop() }
+
+        val wheelNavigates by AppSettings.wheelNavigates.collectAsState()
+        LaunchedEffect(wheelNavigates) {
+            wheelWanted = wheelNavigates
+            if (resumed) ScrollWheel.claim(this@MainActivity, wheelNavigates)
+        }
 
         Box(Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
             val c = call

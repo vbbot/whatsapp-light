@@ -71,16 +71,18 @@ fun ChatOptionsScreen(chat: String) {
             }
         }
         Spacer(Modifier.weight(5.5f))
-        Column(
-            Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Archived chats can't be pinned (archiving unpins).
-            if (!state.archived) ToggleButton(if (state.pinned) "UNPIN" else "PIN") { WaCore.setPinned(chat, !state.pinned) }
-            ToggleButton(if (muted) "UNMUTE" else "MUTE") { WaCore.setMuted(chat, !muted) }
-            ToggleButton(if (state.archived) "UNARCHIVE" else "ARCHIVE") { WaCore.setArchived(chat, !state.archived) }
-            ToggleButton("DELETE") { Nav.push(Screen.DeleteChat(chat)) }
+        WheelMenuScope {
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // Archived chats can't be pinned (archiving unpins).
+                if (!state.archived) ToggleButton(if (state.pinned) "UNPIN" else "PIN") { WaCore.setPinned(chat, !state.pinned) }
+                ToggleButton(if (muted) "UNMUTE" else "MUTE") { WaCore.setMuted(chat, !muted) }
+                ToggleButton(if (state.archived) "UNARCHIVE" else "ARCHIVE") { WaCore.setArchived(chat, !state.archived) }
+                ToggleButton("DELETE") { Nav.push(Screen.DeleteChat(chat)) }
+            }
         }
         Spacer(Modifier.weight(5.5f))
         LightBottomBar(
@@ -99,6 +101,7 @@ internal fun ToggleButton(
     Box(
         Modifier
             .fillMaxWidth()
+            .wheelRow(label, onClick)
             .lightClickable(onClickLabel = label.lowercase(), onClick = onClick)
             .padding(vertical = 0.5f.gridUnitsAsDp()),
         contentAlignment = Alignment.Center,
@@ -141,23 +144,29 @@ fun DeleteChatScreen(chat: String) {
                 )
             }
         }
-        LightBottomBar(
-            modifier = Modifier.navigationBarsPadding(),
-            items =
-                listOf(
-                    if (busy) {
-                        null
-                    } else {
-                        LightBarButton.Text(text = "DELETE", contentDescription = "Delete chat with $title", onClick = {
-                            busy = true
-                            failed = null
-                            WaCore.deleteChat(chat) { error ->
-                                busy = false
-                                if (error == null) Nav.dropChat(chat) else failed = error
-                            }
-                        })
-                    },
-                ),
-        )
+        val delete: () -> Unit = {
+            busy = true
+            failed = null
+            WaCore.deleteChat(chat) { error ->
+                busy = false
+                if (error == null) Nav.dropChat(chat) else failed = error
+            }
+        }
+        // The bar holds only DELETE, so the wheel outlines the bar.
+        WheelMenuScope {
+            Box(if (busy) Modifier else Modifier.wheelRow("DELETE", delete)) {
+                LightBottomBar(
+                    modifier = Modifier.navigationBarsPadding(),
+                    items =
+                        listOf(
+                            if (busy) {
+                                null
+                            } else {
+                                LightBarButton.Text(text = "DELETE", contentDescription = "Delete chat with $title", onClick = delete)
+                            },
+                        ),
+                )
+            }
+        }
     }
 }

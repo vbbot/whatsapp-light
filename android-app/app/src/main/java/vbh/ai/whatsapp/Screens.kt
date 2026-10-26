@@ -273,25 +273,30 @@ private fun CallList() {
         StatusText("No calls yet.")
         return
     }
-    LightLazyScrollView(scrollBarPosition = LightScrollBarPosition.Inside, uniformItemHeightGridUnits = 6f, listState = listState) {
-        items(calls, key = { it.id }) { c ->
-            val name = (if (c.isGroup) titles[c.id] else titles[c.peer]) ?: MessageStore.fallbackTitle(c.peer, phones[c.peer])
-            CallRow(
-                name = name,
-                summary = c.summary,
-                time = formatRowTime(c.startedAt),
-                // A missed call is the one thing worth flagging, with the same asterisk as unread chats.
-                flagged = c.outcome == CallRecord.Outcome.MISSED,
+    WheelListScope(listState) {
+        LightLazyScrollView(scrollBarPosition = LightScrollBarPosition.Inside, uniformItemHeightGridUnits = 6f, listState = listState) {
+            items(calls, key = { it.id }) { c ->
+                val name = (if (c.isGroup) titles[c.id] else titles[c.peer]) ?: MessageStore.fallbackTitle(c.peer, phones[c.peer])
                 // A group call is called back as one, voice or video: the group, or everyone who was on it.
-                onClick = {
+                val callBack: () -> Unit = {
                     when {
                         c.peer.endsWith("@g.us") -> Nav.push(Screen.CallType(c.peer))
                         c.isGroup -> Nav.push(Screen.CallType(c.peer, (listOf(c.peer) + c.members.map(::normalizeJid)).distinct()))
                         else -> WaCore.call(c.peer)
                     }
-                },
-                label = "Call $name back",
-            )
+                }
+                Box(Modifier.wheelRow(c.id, callBack)) {
+                    CallRow(
+                        name = name,
+                        summary = c.summary,
+                        time = formatRowTime(c.startedAt),
+                        // A missed call is the one thing worth flagging, with the same asterisk as unread chats.
+                        flagged = c.outcome == CallRecord.Outcome.MISSED,
+                        onClick = callBack,
+                        label = "Call $name back",
+                    )
+                }
+            }
         }
     }
 }
@@ -508,23 +513,26 @@ fun ContactsScreen(purpose: Purpose) {
                 Box(Modifier.weight(1f)) {
                     when {
                         entries.isNotEmpty() -> {
-                            LightLazyScrollView(
-                                scrollBarPosition = LightScrollBarPosition.Inside,
-                                uniformItemHeightGridUnits = 4.5f,
-                                listState = listState,
-                            ) {
-                                items(entries, key = { it.chat }) { c ->
-                                    ContactRow(name = c.name, subtitle = null) {
-                                        when (purpose) {
-                                            Purpose.MESSAGE -> {
-                                                Nav.replaceTop(Screen.Thread(c.chat))
-                                            }
+                            WheelListScope(listState) {
+                                LightLazyScrollView(
+                                    scrollBarPosition = LightScrollBarPosition.Inside,
+                                    uniformItemHeightGridUnits = 4.5f,
+                                    listState = listState,
+                                ) {
+                                    items(entries, key = { it.chat }) { c ->
+                                        val pick: () -> Unit = {
+                                            when (purpose) {
+                                                Purpose.MESSAGE -> {
+                                                    Nav.replaceTop(Screen.Thread(c.chat))
+                                                }
 
-                                            Purpose.CALL -> {
-                                                WaCore.call(c.chat)
-                                                Nav.pop()
+                                                Purpose.CALL -> {
+                                                    WaCore.call(c.chat)
+                                                    Nav.pop()
+                                                }
                                             }
                                         }
+                                        Box(Modifier.wheelRow(c.chat, pick)) { ContactRow(name = c.name, subtitle = null, onClick = pick) }
                                     }
                                 }
                             }
@@ -704,6 +712,7 @@ fun SettingsScreen() {
     val status by WaState.status.collectAsState()
     val own by WaState.ownNumber.collectAsState()
     val seenStatus by AppSettings.seenStatus.collectAsState()
+    val wheelNavigates by AppSettings.wheelNavigates.collectAsState()
     val granted by Permissions.granted.collectAsState()
     val missing = Perm.entries.count { it !in granted }
     ScreenColumn {
@@ -726,6 +735,12 @@ fun SettingsScreen() {
                     title = "Seen Status",
                     subtitle = "let people see when you've read their messages",
                     onToggle = { AppSettings.setSeenStatus(!seenStatus) },
+                )
+                ToggleRow(
+                    checked = wheelNavigates,
+                    title = "Scroll Wheel Navigation",
+                    subtitle = "turn the wheel to move through the screen and press it to open; off, it sets brightness",
+                    onToggle = { AppSettings.setWheelNavigates(!wheelNavigates) },
                 )
                 // Only while something the app asks for isn't allowed.
                 if (missing > 0) {
@@ -1048,14 +1063,18 @@ fun SearchResultsScreen(query: String) {
                 }
 
                 else -> {
-                    LightLazyScrollView(
-                        scrollBarPosition = LightScrollBarPosition.Inside,
-                        // One line under each name, so every row is the same height.
-                        uniformItemHeightGridUnits = 6f,
-                        listState = rememberLazyListState(),
-                    ) {
-                        items(shown, key = { it.messageId ?: "chat:${it.chat}" }) { r ->
-                            SearchRow(r) { Nav.push(Screen.Thread(r.chat, focus = r.messageId)) }
+                    val listState = rememberLazyListState()
+                    WheelListScope(listState) {
+                        LightLazyScrollView(
+                            scrollBarPosition = LightScrollBarPosition.Inside,
+                            // One line under each name, so every row is the same height.
+                            uniformItemHeightGridUnits = 6f,
+                            listState = listState,
+                        ) {
+                            items(shown, key = { it.messageId ?: "chat:${it.chat}" }) { r ->
+                                val open = { Nav.push(Screen.Thread(r.chat, focus = r.messageId)) }
+                                Box(Modifier.wheelRow(r.messageId ?: "chat:${r.chat}", open)) { SearchRow(r, open) }
+                            }
                         }
                     }
                 }

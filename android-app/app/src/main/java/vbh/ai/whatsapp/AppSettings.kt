@@ -10,6 +10,9 @@ object AppSettings {
 
     /** The first-run permissions screen has been seen; afterwards it opens only from Settings. */
     val permissionsDone = MutableStateFlow(false)
+
+    /** What the scroll wheel does in the app: LightOS's brightness (the default), or moving through the screen. */
+    val wheelNavigates = MutableStateFlow(false)
     private var prefs: android.content.SharedPreferences? = null
 
     @Synchronized
@@ -19,12 +22,18 @@ object AppSettings {
             context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE).also {
                 seenStatus.value = it.getBoolean("seenStatus", true)
                 permissionsDone.value = it.getBoolean("permissionsDone", false)
+                wheelNavigates.value = it.getBoolean("wheelNavigates", false)
             }
     }
 
     fun setSeenStatus(on: Boolean) {
         seenStatus.value = on
         prefs?.edit()?.putBoolean("seenStatus", on)?.apply()
+    }
+
+    fun setWheelNavigates(on: Boolean) {
+        wheelNavigates.value = on
+        prefs?.edit()?.putBoolean("wheelNavigates", on)?.apply()
     }
 
     fun setPermissionsDone() {
