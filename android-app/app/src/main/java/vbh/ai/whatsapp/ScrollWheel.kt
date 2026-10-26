@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LocalHapticsEnabled
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -45,6 +47,9 @@ object ScrollWheel {
     private const val TURN_UP = 317
     private const val TURN_DOWN = 318
     private const val PRESS = 319
+
+    /** A second press within this long of the first is a double press. */
+    private const val DOUBLE_PRESS_MS = 400L
 
     private const val LUMA = "com.vandam.luma"
     private const val ACTION_CLAIM = "com.vandam.luma.action.SCROLLWHEEL"
@@ -84,7 +89,10 @@ object ScrollWheel {
                 }
 
                 PRESS -> {
-                    if (event.action == KeyEvent.ACTION_UP) press()
+                    if (event.action == KeyEvent.ACTION_UP) {
+                        val call = WaState.call.value
+                        if (call != null && call.incoming && call.phase < 3) pressOnRinging(call.video, scope) else press()
+                    }
                     return true
                 }
 
@@ -95,6 +103,26 @@ object ScrollWheel {
         val l = list.value
         if (event.action == KeyEvent.ACTION_DOWN && l != null) scope.launch { steps.withLock { l.step(down) } }
         return true
+    }
+
+    /** A first press on a ringing call, waiting to see whether a second one follows. */
+    private var answering: Job? = null
+
+    /** One press answers a ringing call; two in quick succession decline it. */
+    private fun pressOnRinging(
+        video: Boolean,
+        scope: CoroutineScope,
+    ) {
+        if (answering?.isActive == true) {
+            answering?.cancel()
+            WaCore.reject()
+            return
+        }
+        answering =
+            scope.launch {
+                delay(DOUBLE_PRESS_MS)
+                if (video) CameraGate.withCamera { ok -> WaCore.answer(withCamera = ok) } else WaCore.answer()
+            }
     }
 
     private fun press() {
