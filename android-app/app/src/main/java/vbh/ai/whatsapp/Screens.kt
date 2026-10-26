@@ -861,7 +861,7 @@ fun PairingScreen(code: String?) {
             }
             when (val l = linking) {
                 is Linking.Code -> {
-                    LightText(text = l.code, variant = LightTextVariant.Title, align = TextAlign.Center)
+                    LightText(text = l.code, variant = LightTextVariant.Heading, align = TextAlign.Center)
                     LightText(
                         text =
                             "On your other phone, tap the notification from WhatsApp, or open Settings, Linked devices, " +
