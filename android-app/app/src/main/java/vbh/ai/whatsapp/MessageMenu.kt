@@ -1,5 +1,7 @@
 package vbh.ai.whatsapp
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -99,6 +102,14 @@ fun MessageMenuScreen(
                         Nav.replaceTop(Screen.Composer(chat))
                     }
                     if (canEdit(m, System.currentTimeMillis())) ToggleButton("EDIT") { Nav.replaceTop(Screen.EditMessage(chat, m.id)) }
+                }
+                val copy = m.copyText
+                if (copy.isNotEmpty()) {
+                    val context = LocalContext.current
+                    ToggleButton("COPY") {
+                        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("message", copy))
+                        Nav.pop()
+                    }
                 }
                 if (m.pending) {
                     // Only here: retrying sends it again, deleting drops it without telling anyone.
@@ -272,3 +283,13 @@ fun canEdit(
     m: Msg,
     now: Long,
 ): Boolean = m.fromMe && !m.pending && m.isText && now - m.ts < EDIT_WINDOW_MS
+
+/** What COPY puts on the clipboard: the message's text, or a photo's or video's caption; "" when there's none. */
+internal val Msg.copyText: String get() =
+    when {
+        isText -> text
+        CAPTIONED.any { text.startsWith(it) } -> caption
+        else -> ""
+    }
+
+private val CAPTIONED = listOf("[image]", "[video]", "[gif]")
