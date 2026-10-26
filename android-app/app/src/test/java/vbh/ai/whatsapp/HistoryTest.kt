@@ -63,6 +63,13 @@ class HistoryTest {
         assertEquals(null, History.syncing.value)
     }
 
+    @Test fun anEmptyFinalBatchEndsTheSync() {
+        History.syncing.value = 3
+        // Go sends an empty list as null.
+        History.receive("""{"onDemand":false,"type":"FULL","progress":100,"chats":null,"messages":null,"calls":null}""")
+        assertEquals(null, History.syncing.value)
+    }
+
     @Test fun importStoresMessagesNamesUnreadAndCalls() {
         History.import(History.parse(json))
         val chats = MessageStore.chats().associateBy { it.chat }
