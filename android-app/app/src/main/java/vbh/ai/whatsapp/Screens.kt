@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -925,6 +927,30 @@ private fun PairingNumberScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val state = rememberTextFieldState("")
+    Box(Modifier.fillMaxSize()) {
+        PairingNumberEditor(state, context, onBack, onNumber)
+        // The editor has no hint of its own: this sits under its field, which starts below the
+        // 3 gu top bar and its 1 gu gap. An invisible line of the field's style stands in for the
+        // field, then the underline's gap and thickness.
+        Column(Modifier.padding(top = 4f.gridUnitsAsDp(), start = 2f.gridUnitsAsDp(), end = 2f.gridUnitsAsDp())) {
+            LightText(text = " ", variant = LightTextVariant.Heading, modifier = Modifier.alpha(0f))
+            Spacer(Modifier.height(0.5f.gridUnitsAsDp() + 1.dp + 1f.gridUnitsAsDp()))
+            LightText(
+                text = "Your full number, with the country code. For example, +44 7700 900123 (UK) or +1 202 555 0123 (US).",
+                variant = LightTextVariant.Detail,
+                lighten = true,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PairingNumberEditor(
+    state: androidx.compose.foundation.text.input.TextFieldState,
+    context: android.content.Context,
+    onBack: () -> Unit,
+    onNumber: (String) -> Unit,
+) {
     LightTextInputEditor(
         title = "Your phone number",
         state = state,
