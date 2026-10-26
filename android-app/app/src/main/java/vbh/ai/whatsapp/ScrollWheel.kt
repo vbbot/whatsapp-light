@@ -27,8 +27,6 @@ import androidx.compose.ui.unit.dp
 import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LocalHapticsEnabled
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -47,9 +45,6 @@ object ScrollWheel {
     private const val TURN_UP = 317
     private const val TURN_DOWN = 318
     private const val PRESS = 319
-
-    /** A press held this long on a call ends it. */
-    private const val LONG_PRESS_MS = 600L
 
     private const val LUMA = "com.vandam.luma"
     private const val ACTION_CLAIM = "com.vandam.luma.action.SCROLLWHEEL"
@@ -91,7 +86,7 @@ object ScrollWheel {
                 PRESS -> {
                     val call = WaState.call.value
                     if (call != null) {
-                        pressOnCall(event, call.incoming && call.phase < 3, call.video, scope)
+                        callPress.onKey(event, call, scope)
                     } else if (event.action == KeyEvent.ACTION_UP) {
                         press()
                     }
@@ -107,40 +102,8 @@ object ScrollWheel {
         return true
     }
 
-    /** Waits out a press held on a call; it ends the call if the press is still down when it fires. */
-    private var holding: Job? = null
-
-    /**
-     * On a call, a long press declines it while it rings and hangs up once it's on; a short press
-     * answers a ringing call (and does nothing on one that's on, so a brush can't hang up).
-     */
-    private fun pressOnCall(
-        event: KeyEvent,
-        ringing: Boolean,
-        video: Boolean,
-        scope: CoroutineScope,
-    ) {
-        when (event.action) {
-            KeyEvent.ACTION_DOWN -> {
-                if (event.repeatCount != 0) return
-                holding?.cancel()
-                holding =
-                    scope.launch {
-                        delay(LONG_PRESS_MS)
-                        if (ringing) WaCore.reject() else WaCore.hangup()
-                    }
-            }
-
-            KeyEvent.ACTION_UP -> {
-                val short = holding?.isActive == true
-                holding?.cancel()
-                holding = null
-                if (short && ringing) {
-                    if (video) CameraGate.withCamera { ok -> WaCore.answer(withCamera = ok) } else WaCore.answer()
-                }
-            }
-        }
-    }
+    /** The wheel's press on a call; a short press never hangs up, so a brush can't end a call. */
+    private val callPress = CallPress()
 
     private fun press() {
         list.value?.press()
