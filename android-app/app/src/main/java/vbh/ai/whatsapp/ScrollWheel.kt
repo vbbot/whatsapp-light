@@ -103,7 +103,7 @@ object ScrollWheel {
     }
 
     /** The wheel's press on a call; a short press never hangs up, so a brush can't end a call. */
-    private val callPress = CallPress(shortHangsUp = false)
+    private val callPress = CallPress()
 
     private fun press() {
         list.value?.press()
