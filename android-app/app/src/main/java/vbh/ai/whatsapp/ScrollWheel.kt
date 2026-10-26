@@ -20,6 +20,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.thelightphone.sdk.ui.LightThemeTokens
@@ -47,8 +49,8 @@ object ScrollWheel {
     private const val LUMA = "com.vandam.luma"
     private const val ACTION_CLAIM = "com.vandam.luma.action.SCROLLWHEEL"
 
-    /** The list on screen that the wheel moves through, if any. */
-    val list = MutableStateFlow<WheelList?>(null)
+    /** The list or menu on screen that the wheel moves through, if any. */
+    val list = MutableStateFlow<WheelTarget?>(null)
 
     /** Turns are handled one at a time, in order, however fast the wheel spins. */
     private val steps = Mutex()
@@ -96,13 +98,45 @@ object ScrollWheel {
     }
 
     private fun press() {
-        val l = list.value ?: return
-        l.selected?.let { l.actions[it] }?.invoke()
+        list.value?.press()
     }
 
     /** A touch takes over from the wheel: the highlight goes. */
     fun touched() {
         list.value?.selected = null
+    }
+}
+
+/** Rows the wheel moves a highlight through, and what pressing it does on each. */
+abstract class WheelTarget {
+    /** The highlighted row's key. */
+    var selected by mutableStateOf<Any?>(null)
+
+    /** What pressing the wheel does on each row on screen, by key. */
+    val actions = HashMap<Any, () -> Unit>()
+
+    /** Moves the highlight one row [down] (or up). */
+    abstract suspend fun step(down: Boolean)
+
+    fun press() {
+        selected?.let { actions[it] }?.invoke()
+    }
+}
+
+/** A short menu that fits the screen: its rows top to bottom, without scrolling. */
+class WheelMenu : WheelTarget() {
+    /** Each row's top on screen, for their order. */
+    val tops = HashMap<Any, Float>()
+
+    override suspend fun step(down: Boolean) {
+        val rows = actions.keys.sortedBy { tops[it] ?: 0f }
+        if (rows.isEmpty()) return
+        val i = rows.indexOf(selected)
+        selected =
+            when {
+                i < 0 -> if (down) rows.first() else rows.last()
+                else -> rows[(i + if (down) 1 else -1).coerceIn(0, rows.lastIndex)]
+            }
     }
 }
 
@@ -112,15 +146,9 @@ class WheelList(
     val reverse: Boolean,
     /** Items that aren't rows: spacers, banners. */
     val skip: Set<Any>,
-) {
-    /** The highlighted item's key. */
-    var selected by mutableStateOf<Any?>(null)
-
-    /** What pressing the wheel does on each row on screen, by key. */
-    val actions = HashMap<Any, () -> Unit>()
-
+) : WheelTarget() {
     /** Moves the highlight one row [down] (or up), scrolling at once to show all of it. */
-    suspend fun step(down: Boolean) {
+    override suspend fun step(down: Boolean) {
         // Index order runs bottom to top in a reversed list.
         val dir = if (down != reverse) 1 else -1
         val rows = state.layoutInfo.visibleItemsInfo.filter { it.key !in skip }
@@ -173,7 +201,7 @@ class WheelList(
     }
 }
 
-private val LocalWheelList = staticCompositionLocalOf<WheelList?> { null }
+private val LocalWheelList = staticCompositionLocalOf<WheelTarget?> { null }
 
 /** Makes [state]'s list the one the wheel moves through while [content] is on screen. */
 @Composable
@@ -183,7 +211,20 @@ internal fun WheelListScope(
     skip: Set<Any> = emptySet(),
     content: @Composable () -> Unit,
 ) {
-    val list = remember(state) { WheelList(state, reverse, skip) }
+    WheelScope(remember(state) { WheelList(state, reverse, skip) }, content)
+}
+
+/** Makes the [wheelRow]s in [content] a menu the wheel moves through, top to bottom. */
+@Composable
+internal fun WheelMenuScope(content: @Composable () -> Unit) {
+    WheelScope(remember { WheelMenu() }, content)
+}
+
+@Composable
+private fun WheelScope(
+    list: WheelTarget,
+    content: @Composable () -> Unit,
+) {
     DisposableEffect(list) {
         ScrollWheel.list.value = list
         onDispose { if (ScrollWheel.list.value === list) ScrollWheel.list.value = null }
@@ -206,10 +247,14 @@ internal fun Modifier.wheelRow(
             if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             press()
         }
-        onDispose { list.actions.remove(key) }
+        onDispose {
+            list.actions.remove(key)
+            if (list is WheelMenu) list.tops.remove(key)
+        }
     }
     val outline = LightThemeTokens.colors.content
-    return drawWithContent {
+    val placed = if (list is WheelMenu) onGloballyPositioned { list.tops[key] = it.positionInRoot().y } else this
+    return placed.drawWithContent {
         drawContent()
         if (list.selected == key) {
             val w = 2.dp.toPx()

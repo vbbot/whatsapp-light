@@ -72,47 +72,49 @@ fun MessageMenuScreen(
             )
         }
         Spacer(Modifier.weight(5.5f))
-        Column(
-            Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Not sent yet: there's nothing on WhatsApp to react or reply to.
-            if (!m.pending && !m.isDeleted) {
-                val own = remember(m.id, changes) { MessageStore.ownReaction(m.id) }
-                if (own == null) {
-                    ToggleButton("LIKE") {
-                        WaCore.react(m, LIKE)
+        WheelMenuScope {
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // Not sent yet: there's nothing on WhatsApp to react or reply to.
+                if (!m.pending && !m.isDeleted) {
+                    val own = remember(m.id, changes) { MessageStore.ownReaction(m.id) }
+                    if (own == null) {
+                        ToggleButton("LIKE") {
+                            WaCore.react(m, LIKE)
+                            Nav.pop()
+                        }
+                        ToggleButton("REACT") { Nav.replaceTop(Screen.ReactionPicker(chat, m.id)) }
+                    } else {
+                        ToggleButton("EDIT REACTION") { Nav.replaceTop(Screen.ReactionPicker(chat, m.id)) }
+                        ToggleButton("REMOVE REACTION") {
+                            WaCore.react(m, "")
+                            Nav.pop()
+                        }
+                    }
+                    ToggleButton("REPLY") {
+                        Drafts.setReply(chat, m.id)
+                        Nav.replaceTop(Screen.Composer(chat))
+                    }
+                    if (canEdit(m, System.currentTimeMillis())) ToggleButton("EDIT") { Nav.replaceTop(Screen.EditMessage(chat, m.id)) }
+                }
+                if (m.pending) {
+                    // Only here: retrying sends it again, deleting drops it without telling anyone.
+                    if (m.notSent) {
+                        ToggleButton("RETRY") {
+                            Outbox.retry(m)
+                            Nav.pop()
+                        }
+                    }
+                    ToggleButton("DELETE") {
+                        WaCore.discard(m)
                         Nav.pop()
                     }
-                    ToggleButton("REACT") { Nav.replaceTop(Screen.ReactionPicker(chat, m.id)) }
                 } else {
-                    ToggleButton("EDIT REACTION") { Nav.replaceTop(Screen.ReactionPicker(chat, m.id)) }
-                    ToggleButton("REMOVE REACTION") {
-                        WaCore.react(m, "")
-                        Nav.pop()
-                    }
+                    ToggleButton("DELETE") { Nav.replaceTop(Screen.DeleteMessage(chat, m.id)) }
                 }
-                ToggleButton("REPLY") {
-                    Drafts.setReply(chat, m.id)
-                    Nav.replaceTop(Screen.Composer(chat))
-                }
-                if (canEdit(m, System.currentTimeMillis())) ToggleButton("EDIT") { Nav.replaceTop(Screen.EditMessage(chat, m.id)) }
-            }
-            if (m.pending) {
-                // Only here: retrying sends it again, deleting drops it without telling anyone.
-                if (m.notSent) {
-                    ToggleButton("RETRY") {
-                        Outbox.retry(m)
-                        Nav.pop()
-                    }
-                }
-                ToggleButton("DELETE") {
-                    WaCore.discard(m)
-                    Nav.pop()
-                }
-            } else {
-                ToggleButton("DELETE") { Nav.replaceTop(Screen.DeleteMessage(chat, m.id)) }
             }
         }
         Spacer(Modifier.weight(5.5f))
@@ -165,23 +167,25 @@ fun DeleteMessageScreen(
             )
         }
         Spacer(Modifier.weight(5.5f))
-        Column(
-            Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            if (!busy) {
-                if (canRevoke) {
-                    ToggleButton("DELETE FOR EVERYONE") {
+        WheelMenuScope {
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(0.25f.gridUnitsAsDp()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (!busy) {
+                    if (canRevoke) {
+                        ToggleButton("DELETE FOR EVERYONE") {
+                            busy = true
+                            failed = null
+                            WaCore.deleteForEveryone(m, done)
+                        }
+                    }
+                    ToggleButton("DELETE FOR ME") {
                         busy = true
                         failed = null
-                        WaCore.deleteForEveryone(m, done)
+                        WaCore.deleteForMe(m, done)
                     }
-                }
-                ToggleButton("DELETE FOR ME") {
-                    busy = true
-                    failed = null
-                    WaCore.deleteForMe(m, done)
                 }
             }
         }

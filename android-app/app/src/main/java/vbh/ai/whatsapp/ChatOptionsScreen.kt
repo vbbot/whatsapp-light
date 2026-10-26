@@ -99,6 +99,7 @@ internal fun ToggleButton(
     Box(
         Modifier
             .fillMaxWidth()
+            .wheelRow(label, onClick)
             .lightClickable(onClickLabel = label.lowercase(), onClick = onClick)
             .padding(vertical = 0.5f.gridUnitsAsDp()),
         contentAlignment = Alignment.Center,
