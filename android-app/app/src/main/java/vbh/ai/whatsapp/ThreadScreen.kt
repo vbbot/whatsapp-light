@@ -189,25 +189,30 @@ fun ThreadScreen(
                     // their wider end padding (see MessageRow).
                     Box(Modifier.fillMaxSize()) {
                         // Only the rows on screen are built; they vary in height.
-                        LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize()) {
-                            item(key = "bottom") { Box(Modifier.height(1f.gridUnitsAsDp())) }
-                            items(msgs.size, key = { msgs[msgs.size - 1 - it].id }) { j ->
-                                val i = msgs.size - 1 - j
-                                val m = msgs[i]
-                                val showTime = startsGroup(msgs.getOrNull(i - 1), m)
-                                MessageRow(
-                                    m,
-                                    showTime = showTime,
-                                    showSender = isGroup && showTime,
-                                    tag = tag?.takeIf { it.first == m.id }?.second,
-                                    reactions = reactions[m.id],
-                                    chatTitle = title,
-                                    highlighted = highlighted == m.id,
-                                    onQuote = { openQuote(m) },
-                                    onLongPress = { Nav.push(Screen.MessageMenu(chat, m.id)) },
-                                )
+                        WheelListScope(listState, reverse = true, skip = setOf("bottom", "loading")) {
+                            LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize()) {
+                                item(key = "bottom") { Box(Modifier.height(1f.gridUnitsAsDp())) }
+                                items(msgs.size, key = { msgs[msgs.size - 1 - it].id }) { j ->
+                                    val i = msgs.size - 1 - j
+                                    val m = msgs[i]
+                                    val showTime = startsGroup(msgs.getOrNull(i - 1), m)
+                                    val options = { Nav.push(Screen.MessageMenu(chat, m.id)) }
+                                    Box(Modifier.wheelRow(m.id, options)) {
+                                        MessageRow(
+                                            m,
+                                            showTime = showTime,
+                                            showSender = isGroup && showTime,
+                                            tag = tag?.takeIf { it.first == m.id }?.second,
+                                            reactions = reactions[m.id],
+                                            chatTitle = title,
+                                            highlighted = highlighted == m.id,
+                                            onQuote = { openQuote(m) },
+                                            onLongPress = options,
+                                        )
+                                    }
+                                }
+                                if (waitingForPhone) item(key = "loading") { Banner("Loading earlier messages…") }
                             }
-                            if (waitingForPhone) item(key = "loading") { Banner("Loading earlier messages…") }
                         }
                         ThreadScrollBar(listState, Modifier.align(Alignment.CenterEnd))
                     }
@@ -381,13 +386,8 @@ private fun MessageRow(
         Modifier
             .fillMaxWidth()
             .then(if (highlighted) Modifier.background(LightThemeTokens.colors.contentSecondary.copy(alpha = 0.3f)) else Modifier)
-            .lightPressable(
-                onTapLabel = "Message",
-                onTap = {},
-                onLongPressLabel = "Message options",
-                onLongPress = onLongPress,
-                wheelPressOpensOptions = true,
-            ).padding(
+            .lightPressable(onTapLabel = "Message", onTap = {}, onLongPressLabel = "Message options", onLongPress = onLongPress)
+            .padding(
                 start = 1.5f.gridUnitsAsDp(),
                 end = if (m.fromMe) 2.5f.gridUnitsAsDp() else 1.5f.gridUnitsAsDp(),
                 top = if (showTime) 8.dp else 3.dp,

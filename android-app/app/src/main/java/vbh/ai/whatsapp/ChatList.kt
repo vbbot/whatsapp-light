@@ -3,7 +3,6 @@ package vbh.ai.whatsapp
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalOverscrollFactory
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -35,11 +34,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -197,26 +191,38 @@ private fun ChatRows(
     val reveal = rememberArchivedReveal(listState, enabled = archivedCount > 0)
     // No stretch overscroll: at the top, pulling down reveals Archived instead.
     CompositionLocalProvider(LocalOverscrollFactory provides null) {
-        LightLazyScrollView(
-            modifier = Modifier.nestedScroll(reveal.connection),
-            scrollBarPosition = LightScrollBarPosition.Inside,
-            uniformItemHeightGridUnits = ROW_GU,
-            listState = listState,
-        ) {
-            if (archivedCount > 0) archivedHeader(reveal, archivedCount)
-            items(rows, key = { it.first.chat }) { (summary, name) ->
-                ChatRow(
-                    name = name,
-                    time = formatRowTime(summary.last.ts),
-                    unread = summary.unread,
-                    muted = summary.muted,
-                    pinned = summary.pinned,
-                    community = summary.isCommunity,
-                    onOpen = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.Thread(summary.chat)) },
-                    // A community has no options of its own: its groups each have theirs.
-                    onOptions = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.ChatOptions(summary.chat)) },
-                )
-            }
+        WheelListScope(listState, skip = setOf("archived")) { ChatRowList(rows, listState, reveal, archivedCount) }
+    }
+}
+
+@Composable
+private fun ChatRowList(
+    rows: List<Pair<ChatSummary, String>>,
+    listState: LazyListState,
+    reveal: ArchivedReveal,
+    archivedCount: Int,
+) {
+    LightLazyScrollView(
+        modifier = Modifier.nestedScroll(reveal.connection),
+        scrollBarPosition = LightScrollBarPosition.Inside,
+        uniformItemHeightGridUnits = ROW_GU,
+        listState = listState,
+    ) {
+        if (archivedCount > 0) archivedHeader(reveal, archivedCount)
+        items(rows, key = { it.first.chat }) { (summary, name) ->
+            val open = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.Thread(summary.chat)) }
+            ChatRow(
+                modifier = Modifier.wheelRow(summary.chat, open),
+                name = name,
+                time = formatRowTime(summary.last.ts),
+                unread = summary.unread,
+                muted = summary.muted,
+                pinned = summary.pinned,
+                community = summary.isCommunity,
+                onOpen = open,
+                // A community has no options of its own: its groups each have theirs.
+                onOptions = { Nav.push(if (summary.isCommunity) Screen.Community(summary.chat) else Screen.ChatOptions(summary.chat)) },
+            )
         }
     }
 }
@@ -342,9 +348,10 @@ private fun ChatRow(
     community: Boolean = false,
     onOpen: () -> Unit,
     onOptions: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .lightPressable(
                 onTapLabel = if (community) "Open community $name" else "Open chat with $name",
@@ -400,7 +407,6 @@ internal fun Modifier.lightPressable(
     onTap: () -> Unit,
     onLongPressLabel: String? = null,
     onLongPress: (() -> Unit)? = null,
-    wheelPressOpensOptions: Boolean = false,
 ): Modifier {
     val haptics = LocalHapticFeedback.current
     val hapticsOn = LocalHapticsEnabled.current
@@ -411,18 +417,6 @@ internal fun Modifier.lightPressable(
         if (hapticsOn) haptics.performHapticFeedback(type)
     }
     return this
-        // Reachable with the scroll wheel: pressing it taps, or long-presses with [wheelPressOpensOptions].
-        .onKeyEvent { e ->
-            if (e.key != Key.DirectionCenter && e.key != Key.Enter) return@onKeyEvent false
-            if (e.type == KeyEventType.KeyUp) {
-                val press = if (wheelPressOpensOptions) longPress else tap
-                if (press != null) {
-                    buzz(HapticFeedbackType.LongPress)
-                    press()
-                }
-            }
-            true
-        }.focusable()
         .semantics {
             onClick(onTapLabel) {
                 tap()

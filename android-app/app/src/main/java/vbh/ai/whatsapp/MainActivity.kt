@@ -4,7 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
-import android.view.View
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -12,7 +12,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.onFocusedBoundsChanged
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -24,15 +23,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.InputMode
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalInputModeManager
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.thelightphone.sdk.ui.LightTheme
@@ -121,7 +111,7 @@ class MainActivity : ComponentActivity() {
         @Volatile var resumed = false
     }
 
-    /** Whether the scroll wheel navigates the screen in front (setting on, and a screen it can move through). */
+    /** Whether the scroll wheel navigates the app (its setting), so the app claims it from Luma while in front. */
     private var wheelWanted = false
 
     override fun onPause() {
@@ -138,13 +128,13 @@ class MainActivity : ComponentActivity() {
         Permissions.refresh(this)
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val dpad = if (wheelWanted) ScrollWheel.asDpad(event) else null
-        if (dpad == null) return super.dispatchKeyEvent(event)
-        // Unlike the d-pad, wheel keys don't take the window out of touch mode, and in touch mode
-        // nothing can be focused.
-        if (window.decorView.isInTouchMode) findViewById<View>(android.R.id.content).requestFocusFromTouch()
-        return super.dispatchKeyEvent(dpad)
+    // With the setting on, the wheel is the app's on every screen; where there's no list it does nothing.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        (wheelWanted && ScrollWheel.onKey(event, lifecycleScope)) || super.dispatchKeyEvent(event)
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) ScrollWheel.touched()
+        return super.dispatchTouchEvent(event)
     }
 
     /** Starts the connection, or restarts the service so it can claim the microphone once allowed. */
@@ -183,36 +173,12 @@ class MainActivity : ComponentActivity() {
         BackHandler(enabled = call == null && stack.size > 1) { Nav.pop() }
 
         val wheelNavigates by AppSettings.wheelNavigates.collectAsState()
-        val wheel =
-            wheelNavigates && !splash && permissionsDone && call == null && linked == true && qr == null &&
-                ScrollWheel.navigates(stack.last())
-        LaunchedEffect(wheel) {
-            wheelWanted = wheel
-            if (resumed) ScrollWheel.claim(this@MainActivity, wheel)
+        LaunchedEffect(wheelNavigates) {
+            wheelWanted = wheelNavigates
+            if (resumed) ScrollWheel.claim(this@MainActivity, wheelNavigates)
         }
 
-        // The wheel's highlight: an outline round whatever has focus, while the wheel is in use.
-        val inputModes = LocalInputModeManager.current
-        val root = remember { arrayOfNulls<LayoutCoordinates>(1) }
-        var focused by remember { mutableStateOf<Rect?>(null) }
-        val outline = LightThemeTokens.colors.content
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(LightThemeTokens.colors.background)
-                .onGloballyPositioned { root[0] = it }
-                .onFocusedBoundsChanged { child ->
-                    val r = root[0]
-                    focused = if (child != null && child.isAttached && r != null && r.isAttached) r.localBoundingBoxOf(child) else null
-                }.drawWithContent {
-                    drawContent()
-                    val f = focused
-                    if (wheel && f != null && !f.isEmpty && inputModes.inputMode == InputMode.Keyboard) {
-                        val w = 2.dp.toPx()
-                        drawRect(outline, Offset(f.left + w / 2, f.top + w / 2), f.deflate(w / 2).size, style = Stroke(w))
-                    }
-                },
-        ) {
+        Box(Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
             val c = call
             when {
                 splash -> {
