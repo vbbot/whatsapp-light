@@ -132,7 +132,9 @@ func (c *Client) handleHistory(e *events.HistorySync) {
 	}
 	c.l.OnLog(fmt.Sprintf("history: type=%s progress=%d chats=%d messages=%d calls=%d",
 		data.GetSyncType(), b.Progress, len(b.Chats), len(b.Messages), len(b.Calls)))
-	if len(b.Chats) == 0 && len(b.Calls) == 0 {
+	// An empty on-demand batch has nothing for the app. Sync batches always go, even empty: the
+	// last one can be, and its stage and progress tell the app the sync is done.
+	if b.OnDemand && len(b.Chats) == 0 && len(b.Calls) == 0 {
 		return
 	}
 	out, err := json.Marshal(b)
