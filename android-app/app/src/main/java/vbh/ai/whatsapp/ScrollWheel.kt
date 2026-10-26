@@ -48,8 +48,8 @@ object ScrollWheel {
     private const val TURN_DOWN = 318
     private const val PRESS = 319
 
-    /** A second press within this long of the first is a double press. */
-    private const val DOUBLE_PRESS_MS = 400L
+    /** A press held this long on a call ends it. */
+    private const val LONG_PRESS_MS = 600L
 
     private const val LUMA = "com.vandam.luma"
     private const val ACTION_CLAIM = "com.vandam.luma.action.SCROLLWHEEL"
@@ -89,9 +89,11 @@ object ScrollWheel {
                 }
 
                 PRESS -> {
-                    if (event.action == KeyEvent.ACTION_UP) {
-                        val call = WaState.call.value
-                        if (call != null && call.incoming && call.phase < 3) pressOnRinging(call.video, scope) else press()
+                    val call = WaState.call.value
+                    if (call != null) {
+                        pressOnCall(event, call.incoming && call.phase < 3, call.video, scope)
+                    } else if (event.action == KeyEvent.ACTION_UP) {
+                        press()
                     }
                     return true
                 }
@@ -105,24 +107,39 @@ object ScrollWheel {
         return true
     }
 
-    /** A first press on a ringing call, waiting to see whether a second one follows. */
-    private var answering: Job? = null
+    /** Waits out a press held on a call; it ends the call if the press is still down when it fires. */
+    private var holding: Job? = null
 
-    /** One press answers a ringing call; two in quick succession decline it. */
-    private fun pressOnRinging(
+    /**
+     * On a call, a long press declines it while it rings and hangs up once it's on; a short press
+     * answers a ringing call (and does nothing on one that's on, so a brush can't hang up).
+     */
+    private fun pressOnCall(
+        event: KeyEvent,
+        ringing: Boolean,
         video: Boolean,
         scope: CoroutineScope,
     ) {
-        if (answering?.isActive == true) {
-            answering?.cancel()
-            WaCore.reject()
-            return
-        }
-        answering =
-            scope.launch {
-                delay(DOUBLE_PRESS_MS)
-                if (video) CameraGate.withCamera { ok -> WaCore.answer(withCamera = ok) } else WaCore.answer()
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> {
+                if (event.repeatCount != 0) return
+                holding?.cancel()
+                holding =
+                    scope.launch {
+                        delay(LONG_PRESS_MS)
+                        if (ringing) WaCore.reject() else WaCore.hangup()
+                    }
             }
+
+            KeyEvent.ACTION_UP -> {
+                val short = holding?.isActive == true
+                holding?.cancel()
+                holding = null
+                if (short && ringing) {
+                    if (video) CameraGate.withCamera { ok -> WaCore.answer(withCamera = ok) } else WaCore.answer()
+                }
+            }
+        }
     }
 
     private fun press() {
