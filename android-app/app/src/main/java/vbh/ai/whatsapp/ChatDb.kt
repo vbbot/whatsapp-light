@@ -38,7 +38,8 @@ class ChatDb(
                 quote_id TEXT NOT NULL DEFAULT '',
                 quote_sender TEXT NOT NULL DEFAULT '',
                 quote_text TEXT NOT NULL DEFAULT '',
-                edited_at INTEGER NOT NULL DEFAULT 0
+                edited_at INTEGER NOT NULL DEFAULT 0,
+                mentions TEXT NOT NULL DEFAULT ''
             )
             """.trimIndent(),
         )
@@ -117,11 +118,13 @@ class ChatDb(
         }
         // 11: looking up a group member's name by their messages.
         if (oldVersion < 11) db.execSQL(SENDER_INDEX)
+        // 12: who a message @mentions.
+        if (oldVersion < 12) db.execSQL("ALTER TABLE messages ADD COLUMN mentions TEXT NOT NULL DEFAULT ''")
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 11
+        const val VERSION = 12
 
         private const val SENDER_INDEX = "CREATE INDEX IF NOT EXISTS messages_sender ON messages(sender)"
 
@@ -149,6 +152,7 @@ class ChatDb(
                 put("quote_sender", m.quoteSender)
                 put("quote_text", m.quoteText)
                 put("edited_at", m.editedAt)
+                put("mentions", m.mentions)
             }
 
         fun msg(c: Cursor) =
@@ -169,6 +173,7 @@ class ChatDb(
                 quoteSender = c.getString(c.getColumnIndexOrThrow("quote_sender")),
                 quoteText = c.getString(c.getColumnIndexOrThrow("quote_text")),
                 editedAt = c.getLong(c.getColumnIndexOrThrow("edited_at")),
+                mentions = c.getString(c.getColumnIndexOrThrow("mentions")),
             )
 
         fun values(r: CallRecord) =

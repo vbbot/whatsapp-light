@@ -125,6 +125,13 @@ fun ThreadScreen(
         rememberQuery(senderIds, changes, names, phones, initial = emptyMap()) {
             senderIds.associateWith { Replies.authorName(it, chat) }
         } ?: emptyMap()
+    // How each @mention in the loaded messages reads.
+    val mentionIds = remember(msgs) { msgs.flatMap { it.mentions.jidList() }.distinct() }
+    LaunchedEffect(mentionIds) { WaCore.resolveAll(mentionIds) }
+    val mentionNames =
+        rememberQuery(mentionIds, changes, names, phones, initial = emptyMap()) {
+            mentionIds.associateWith(Mentions::name)
+        } ?: emptyMap()
     val newest = msgs.lastOrNull()
     val listState = rememberLazyListState()
     val tag = remember(msgs, isGroup) { if (isGroup) null else receiptTag(msgs) }
@@ -213,6 +220,7 @@ fun ThreadScreen(
                                             sender = if (isGroup && showTime && !m.fromMe) senders[m.sender] ?: m.senderName else "",
                                             tag = tag?.takeIf { it.first == m.id }?.second,
                                             reactions = reactions[m.id],
+                                            mentionNames = mentionNames,
                                             chatTitle = title,
                                             highlighted = highlighted == m.id,
                                             onQuote = { openQuote(m) },
@@ -384,6 +392,7 @@ private fun MessageRow(
     sender: String,
     tag: String?,
     reactions: String?,
+    mentionNames: Map<String, String>,
     chatTitle: String,
     highlighted: Boolean,
     onQuote: () -> Unit,
@@ -429,10 +438,10 @@ private fun MessageRow(
                             .lightClickable(onClickLabel = "Go to the message this replies to", onClick = onQuote)
                             .padding(top = 1.dp),
                     )
-                    MessageBody(m, columnWidthPx, chatTitle)
+                    MessageBody(m, columnWidthPx, chatTitle, mentionNames)
                 }
             } else {
-                MessageBody(m, columnWidthPx, chatTitle)
+                MessageBody(m, columnWidthPx, chatTitle, mentionNames)
             }
             // Receipt tag in place of ticks: one quiet word under the message it applies to, after
             // "edited" when its author changed it.
@@ -449,6 +458,7 @@ private fun MessageBody(
     m: Msg,
     columnWidthPx: Int,
     chatTitle: String,
+    mentionNames: Map<String, String>,
 ) {
     if (m.isDeleted) {
         // Deleted for everyone: a dimmed line in its place.
@@ -474,9 +484,9 @@ private fun MessageBody(
                 MessageText(if (m.isGif) "GIF" else videoLabel(rememberVideoSeconds(m)), m.fromMe, columnWidthPx)
             }
         }
-        if (m.caption.isNotEmpty()) MessageText(m.caption, m.fromMe, columnWidthPx)
+        if (m.caption.isNotEmpty()) MessageText(m.shownCaption(mentionNames::get), m.fromMe, columnWidthPx)
     } else {
-        MessageText(m.text, m.fromMe, columnWidthPx)
+        MessageText(m.shownText(mentionNames::get), m.fromMe, columnWidthPx)
     }
 }
 

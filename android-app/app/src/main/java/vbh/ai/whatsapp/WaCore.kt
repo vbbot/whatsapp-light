@@ -1176,6 +1176,7 @@ object WaCore : Listener {
         quotedID: String,
         quotedSender: String,
         quotedText: String,
+        mentions: String,
     ) {
         Wake.hold(5_000)
         // Our own messages sent from another device have already reached the server.
@@ -1195,13 +1196,11 @@ object WaCore : Listener {
                 quoteId = quotedID,
                 quoteSender = quotedSender,
                 quoteText = quotedText,
+                mentions = mentions,
             ),
         )
-        if (!isGroup) {
-            resolve(chat)
-        } else if (!fromMe) {
-            resolve(sender)
-        }
+        // The person, or in a group whoever wrote (so the thread can name them), and anyone mentioned.
+        resolveAll((listOf(if (isGroup) sender else chat) + mentions.jidList()).filter { it != "me" })
         // A group joined since linking: find out whether it's in a community.
         if (isGroup && MessageStore.communityKind(chat) == CommunityKind.UNKNOWN) checkCommunities()
         // Muted and archived chats stay quiet: the message is stored and shows as unread.
@@ -1213,7 +1212,7 @@ object WaCore : Listener {
                     .Builder(app, CH_MESSAGES)
                     .setSmallIcon(android.R.drawable.stat_notify_chat)
                     .setContentTitle(if (isGroup) "$title · ${Replies.authorName(sender, chat)}" else title)
-                    .setContentText(text)
+                    .setContentText(Mentions.shown(text, mentions.jidList(), Mentions::name))
                     .setAutoCancel(true)
                     .setContentIntent(openApp())
                     .build()
@@ -1481,7 +1480,9 @@ object WaCore : Listener {
             // A batch can bring the mappings that join a person's two addresses.
             val merged = ChatIdentity.mergeDuplicates()
             // And group members, so their messages say who wrote them.
-            val members = batch.messages.filter { it.isGroup && !it.fromMe }.map { it.sender }
+            val members =
+                batch.messages.filter { it.isGroup && !it.fromMe }.map { it.sender } +
+                    batch.messages.flatMap { it.mentions.jidList() }
             resolveAll(batch.chats.keys.filterNot { it.endsWith("@g.us") } + merged + members)
             // Communities named only by their groups still need a name.
             if (!batch.onDemand) checkCommunities()

@@ -47,6 +47,8 @@ type historyMsg struct {
 	QuotedID     string `json:"quotedId,omitempty"`
 	QuotedSender string `json:"quotedSender,omitempty"`
 	QuotedText   string `json:"quotedText,omitempty"`
+	// The people it @mentions (see mentionsOf).
+	Mentions string `json:"mentions,omitempty"`
 	// Reactions on this message, one per person.
 	Reactions []historyReaction `json:"reactions,omitempty"`
 }
@@ -185,6 +187,7 @@ func (c *Client) historyMessage(chat types.JID, web *waWeb.WebMessageInfo, pushN
 		QuotedID:     q.ID,
 		QuotedSender: q.Sender,
 		QuotedText:   q.Text,
+		Mentions:     mentionsOf(m.Message),
 		Reactions:    c.historyReactions(m.Info.Chat, web, mappings),
 	}, true
 }

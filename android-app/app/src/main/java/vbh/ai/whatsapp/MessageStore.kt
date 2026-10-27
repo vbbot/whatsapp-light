@@ -31,6 +31,8 @@ data class Msg(
     val quoteText: String = "",
     /** When its author last edited it (Unix ms); 0 if never. */
     val editedAt: Long = 0L,
+    /** The people it @mentions, comma-separated, as WhatsApp addressed them; "" if none. See [Mentions]. */
+    val mentions: String = "",
 ) {
     val isReply: Boolean get() = quoteId.isNotEmpty()
 
@@ -323,6 +325,7 @@ object MessageStore {
                 quoteId = m.quoteId.ifEmpty { old?.quoteId.orEmpty() },
                 quoteSender = m.quoteSender.ifEmpty { old?.quoteSender.orEmpty() },
                 quoteText = m.quoteText.ifEmpty { old?.quoteText.orEmpty() },
+                mentions = m.mentions.ifEmpty { old?.mentions.orEmpty() },
             )
         d.insertWithOnConflict("messages", null, ChatDb.values(merged), SQLiteDatabase.CONFLICT_REPLACE)
     }
