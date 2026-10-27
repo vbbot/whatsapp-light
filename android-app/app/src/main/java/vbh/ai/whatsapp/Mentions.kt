@@ -23,6 +23,27 @@ object Mentions {
         return out
     }
 
+    /**
+     * [text] as WhatsApp gets it: each `@Name` from [picked] (name to address) that's still in it
+     * becomes `@<user>`. Returns that and the addresses it mentions. Longer names go first, so
+     * "@Ana Maria" isn't taken for "@Ana".
+     */
+    fun toWire(
+        text: String,
+        picked: List<Pair<String, String>>,
+    ): Pair<String, List<String>> {
+        var out = text
+        val jids = mutableListOf<String>()
+        for ((name, jid) in picked.distinct().sortedByDescending { it.first.length }) {
+            val token = "@$name"
+            val user = jid.substringBefore('@')
+            if (name.isEmpty() || user.isEmpty() || token !in out) continue
+            out = out.replace(token, "@$user")
+            jids += jid
+        }
+        return out to jids.distinct()
+    }
+
     /** How a mention of [jid] reads: "You" for this account, else the person's name or number. */
     fun name(jid: String): String {
         val own = WaState.ownNumber.value

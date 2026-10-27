@@ -21,3 +21,22 @@ func TestMentionsOfListsMentionedAddresses(t *testing.T) {
 		t.Errorf("plain: got %q", got)
 	}
 }
+
+func TestWithMentionsCarriesTheAddresses(t *testing.T) {
+	if m := withMentions("hi", "", nil); m.GetConversation() != "hi" {
+		t.Errorf("plain: %v", m)
+	}
+	m := withMentions("@111 hi", "111@lid, 222:4@s.whatsapp.net", nil)
+	got := m.GetExtendedTextMessage().GetContextInfo().GetMentionedJID()
+	if m.GetExtendedTextMessage().GetText() != "@111 hi" || len(got) != 2 || got[0] != "111@lid" || got[1] != "222@s.whatsapp.net" {
+		t.Errorf("mentions: %v", m)
+	}
+	// Round trip: what we send reads back as the same mentions.
+	if mentionsOf(m) != "111@lid,222@s.whatsapp.net" {
+		t.Errorf("round trip: %q", mentionsOf(m))
+	}
+	reply := withMentions("ok", "", &waE2E.ContextInfo{StanzaID: proto.String("Q")})
+	if reply.GetExtendedTextMessage().GetContextInfo().GetStanzaID() != "Q" {
+		t.Errorf("reply: %v", reply)
+	}
+}

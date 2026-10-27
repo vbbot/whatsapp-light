@@ -18,4 +18,25 @@ class MentionsTest {
 
     @Test fun aNameWithDollarSignsIsInsertedLiterally() =
         assertEquals("@\$1 Club", Mentions.shown("@111", listOf("111@lid"), mapOf("111@lid" to "\$1 Club")::get))
+
+    @Test fun pickedNamesAreSentAsTheirUserAndListed() {
+        val picked = listOf("Ana" to "111@lid", "Ana Maria" to "222@lid", "Bo" to "333@lid")
+        assertEquals("@111 and @222, hi" to listOf("222@lid", "111@lid"), Mentions.toWire("@Ana and @Ana Maria, hi", picked))
+    }
+
+    @Test fun aMentionWhoseNameWasDeletedIsNotSent() =
+        assertEquals(
+            "hi Bo" to emptyList<String>(),
+            Mentions.toWire(
+                "hi Bo",
+                listOf("Bo" to "333@lid"),
+            ),
+        )
+
+    @Test fun onlyAnAtTypedAtAWordStartOpensThePicker() {
+        assertEquals(true, typedMentionStart("", "@", 1))
+        assertEquals(true, typedMentionStart("hi ", "hi @", 4))
+        assertEquals(false, typedMentionStart("me", "me@", 3))
+        assertEquals(false, typedMentionStart("hi", "hi @", 4))
+    }
 }

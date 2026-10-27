@@ -555,6 +555,62 @@ fun ContactsScreen(purpose: Purpose) {
     }
 }
 
+/**
+ * Who to @mention in group [chat]'s composer: its members by name, one per row. Picking one goes
+ * back to the composer, which puts the name in after the "@"; back leaves the "@" as typed.
+ */
+@Composable
+fun MentionPickerScreen(chat: String) {
+    val changes by MessageStore.changes.collectAsState()
+    val names by MessageStore.names.collectAsState()
+    val phones by MessageStore.phones.collectAsState()
+    val members = rememberQuery(chat) { WaCore.groupMembers(chat) }
+    LaunchedEffect(members) { members?.let(WaCore::resolveAll) }
+    val rows =
+        rememberQuery(members, changes, names, phones) {
+            members
+                ?.map { it to MessageStore.title(it) }
+                ?.sortedWith(compareBy({ it.second.startsWith("+") || it.second == "Unknown contact" }, { it.second.lowercase() }))
+        }
+    val listState = rememberLazyListState()
+    ScreenColumn {
+        LightTopBar(
+            leftButton = backButton("message") { Nav.pop() },
+            center = LightTopBarCenter.Text("Mention"),
+        )
+        Box(Modifier.weight(1f)) {
+            when {
+                rows == null -> {
+                    StatusText(LOADING_TEXT)
+                }
+
+                rows.isEmpty() -> {
+                    StatusText("No one to mention yet.")
+                }
+
+                else -> {
+                    WheelListScope(listState) {
+                        LightLazyScrollView(
+                            scrollBarPosition = LightScrollBarPosition.Inside,
+                            uniformItemHeightGridUnits = 4.5f,
+                            listState = listState,
+                        ) {
+                            items(rows, key = { it.first }) { (jid, name) ->
+                                val pick: () -> Unit = {
+                                    Drafts.pick(chat, name, jid)
+                                    Nav.pop()
+                                }
+                                Box(Modifier.wheelRow(jid, pick)) { ContactRow(name = name, subtitle = null, onClick = pick) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Box(Modifier.navigationBarsPadding().height(1f.gridUnitsAsDp()))
+    }
+}
+
 @Composable
 private fun ContactRow(
     name: String,

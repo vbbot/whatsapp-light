@@ -248,6 +248,10 @@ class MainActivity : ComponentActivity() {
                     ComposerScreen(s.chat)
                 }
 
+                is Screen.MentionPicker -> {
+                    MentionPickerScreen(s.chat)
+                }
+
                 is Screen.EditMessage -> {
                     EditMessageScreen(s.chat, s.id)
                 }
