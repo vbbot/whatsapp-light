@@ -88,8 +88,8 @@ private fun detailStyle(): TextStyle {
     )
 }
 
-/** What a message said, in one line: its text, or a noun for media without a caption. */
-fun quoteSnippet(m: Msg): String = snippet(m.text)
+/** What a message said, in one line: its text (mentions named), or a noun for media without a caption. */
+fun quoteSnippet(m: Msg): String = snippet(m.shownText())
 
 /** walib's placeholders ("[image] caption", "[voice message]", …) as a quote shows them. */
 fun snippet(raw: String): String {

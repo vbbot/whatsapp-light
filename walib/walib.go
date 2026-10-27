@@ -56,8 +56,8 @@ type Listener interface {
 	// OnMediaReady), or "". mediaRef is what DownloadPhoto / DownloadVideo need to fetch a photo or
 	// video later, or "".
 	// For a reply, quotedID, quotedSender and quotedText describe the message it answers (see
-	// quote); all "" otherwise.
-	OnMessage(chat, sender, senderName, id, text string, timestampMs int64, fromMe, isGroup bool, mediaPath, mediaRef, quotedID, quotedSender, quotedText string)
+	// quote); all "" otherwise. mentions lists the people it @mentions (see mentionsOf), or "".
+	OnMessage(chat, sender, senderName, id, text string, timestampMs int64, fromMe, isGroup bool, mediaPath, mediaRef, quotedID, quotedSender, quotedText, mentions string)
 	// OnMessageEdited reports that message id of chat now says text (edited at editedAtMs). fromMe
 	// and sender are who edited it: only its author can, so the app checks they match.
 	OnMessageEdited(chat, id, text string, editedAtMs int64, fromMe bool, sender string)
@@ -276,7 +276,8 @@ func (c *Client) handleMessage(m *events.Message) {
 	mediaPath := c.saveMedia(m, true)
 	q := c.quoteOf(m.Message, nil)
 	c.l.OnMessage(c.canonical(m.Info.Chat, nil).String(), c.canonical(m.Info.Sender, nil).String(), m.Info.PushName, m.Info.ID,
-		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath, mediaRef(m.Message), q.ID, q.Sender, q.Text)
+		text, m.Info.Timestamp.UnixMilli(), m.Info.IsFromMe, m.Info.IsGroup, mediaPath, mediaRef(m.Message), q.ID, q.Sender, q.Text,
+		mentionsOf(m.Message))
 }
 
 // messageText is the body shown for a message: its text, or a placeholder such as "[image]"

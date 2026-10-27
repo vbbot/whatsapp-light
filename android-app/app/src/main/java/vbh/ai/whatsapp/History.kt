@@ -132,6 +132,7 @@ object History {
                     quoteId = it.optString("quotedId"),
                     quoteSender = it.optString("quotedSender"),
                     quoteText = it.optString("quotedText"),
+                    mentions = it.optString("mentions"),
                 )
             }
         // Old messages count as read (no blue ticks for them now), except the ones the phone
