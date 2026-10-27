@@ -116,6 +116,15 @@ fun ThreadScreen(
         rememberQuery(msgs, changes, initial = emptyMap()) {
             MessageStore.reactions(msgs.map { it.id }).mapValues { reactionLine(it.value) }
         } ?: emptyMap()
+    // Who wrote each group message, by name, as their quotes name them; kept current as names resolve.
+    val names by MessageStore.names.collectAsState()
+    val phones by MessageStore.phones.collectAsState()
+    val senderIds = remember(msgs, isGroup) { if (isGroup) msgs.filterNot { it.fromMe }.map { it.sender }.distinct() else emptyList() }
+    LaunchedEffect(senderIds) { WaCore.resolveAll(senderIds) }
+    val senders =
+        rememberQuery(senderIds, changes, names, phones, initial = emptyMap()) {
+            senderIds.associateWith { Replies.authorName(it, chat) }
+        } ?: emptyMap()
     val newest = msgs.lastOrNull()
     val listState = rememberLazyListState()
     val tag = remember(msgs, isGroup) { if (isGroup) null else receiptTag(msgs) }
@@ -201,7 +210,7 @@ fun ThreadScreen(
                                         MessageRow(
                                             m,
                                             showTime = showTime,
-                                            showSender = isGroup && showTime,
+                                            sender = if (isGroup && showTime && !m.fromMe) senders[m.sender] ?: m.senderName else "",
                                             tag = tag?.takeIf { it.first == m.id }?.second,
                                             reactions = reactions[m.id],
                                             chatTitle = title,
@@ -372,7 +381,7 @@ internal fun startsGroup(
 private fun MessageRow(
     m: Msg,
     showTime: Boolean,
-    showSender: Boolean,
+    sender: String,
     tag: String?,
     reactions: String?,
     chatTitle: String,
@@ -401,9 +410,7 @@ private fun MessageRow(
                 .align(if (m.fromMe) Alignment.CenterEnd else Alignment.CenterStart),
             horizontalAlignment = if (m.fromMe) Alignment.End else Alignment.Start,
         ) {
-            if (showSender && !m.fromMe && m.senderName.isNotBlank()) {
-                LightText(text = m.senderName, variant = LightTextVariant.Detail)
-            }
+            if (sender.isNotBlank()) LightText(text = sender, variant = LightTextVariant.Detail)
             // The time only leads a group; an unsent message always says where it is. Solid white, like the text.
             val connected by WaState.connected.collectAsState()
             when {

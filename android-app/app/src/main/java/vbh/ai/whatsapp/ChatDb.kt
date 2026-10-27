@@ -43,6 +43,7 @@ class ChatDb(
             """.trimIndent(),
         )
         db.execSQL("CREATE INDEX messages_chat_ts ON messages(chat, ts)")
+        db.execSQL(SENDER_INDEX)
         db.execSQL(
             """
             CREATE TABLE calls (
@@ -114,11 +115,15 @@ class ChatDb(
             db.execSQL("ALTER TABLE chats ADD COLUMN community TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE chats ADD COLUMN community_kind INTEGER NOT NULL DEFAULT 0")
         }
+        // 11: looking up a group member's name by their messages.
+        if (oldVersion < 11) db.execSQL(SENDER_INDEX)
     }
 
     companion object {
         const val NAME = "chats.db"
-        const val VERSION = 10
+        const val VERSION = 11
+
+        private const val SENDER_INDEX = "CREATE INDEX IF NOT EXISTS messages_sender ON messages(sender)"
 
         @Volatile private var shared: ChatDb? = null
 

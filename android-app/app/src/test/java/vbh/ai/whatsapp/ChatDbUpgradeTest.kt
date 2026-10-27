@@ -19,7 +19,7 @@ class ChatDbUpgradeTest {
         val db = SQLiteDatabase.create(null)
         // As version 6 left it: chats without reacted_at.
         db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY, last_read INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '')")
-        db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, text TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, sender TEXT NOT NULL, text TEXT NOT NULL)")
         db.execSQL("CREATE TABLE calls (id TEXT PRIMARY KEY, peer TEXT NOT NULL)")
         ChatDb(
             androidx.test.core.app.ApplicationProvider
@@ -31,7 +31,7 @@ class ChatDbUpgradeTest {
 
     @Test fun aVersion7DatabaseGainsEditedAt() {
         val db = SQLiteDatabase.create(null)
-        db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, text TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, sender TEXT NOT NULL, text TEXT NOT NULL)")
         db.execSQL("CREATE TABLE calls (id TEXT PRIMARY KEY, peer TEXT NOT NULL)")
         db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY)")
         ChatDb(
@@ -44,6 +44,7 @@ class ChatDbUpgradeTest {
 
     @Test fun aVersion8DatabaseGainsCallMembers() {
         val db = SQLiteDatabase.create(null)
+        db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, sender TEXT NOT NULL)")
         db.execSQL("CREATE TABLE calls (id TEXT PRIMARY KEY, peer TEXT NOT NULL)")
         db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY)")
         ChatDb(
@@ -56,6 +57,7 @@ class ChatDbUpgradeTest {
 
     @Test fun aVersion9DatabaseGainsCommunities() {
         val db = SQLiteDatabase.create(null)
+        db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, sender TEXT NOT NULL)")
         db.execSQL("CREATE TABLE chats (chat TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '')")
         ChatDb(
             androidx.test.core.app.ApplicationProvider
@@ -64,5 +66,17 @@ class ChatDbUpgradeTest {
         ).onUpgrade(db, 9, ChatDb.VERSION)
         assertTrue("community" in columns(db, "chats"))
         assertTrue("community_kind" in columns(db, "chats"))
+    }
+
+    @Test fun aVersion10DatabaseGainsTheSenderIndex() {
+        val db = SQLiteDatabase.create(null)
+        db.execSQL("CREATE TABLE messages (id TEXT PRIMARY KEY, sender TEXT NOT NULL)")
+        ChatDb(
+            androidx.test.core.app.ApplicationProvider
+                .getApplicationContext(),
+            null,
+        ).onUpgrade(db, 10, ChatDb.VERSION)
+        val indexes = db.rawQuery("PRAGMA index_list(messages)", null).use { c -> buildList { while (c.moveToNext()) add(c.getString(1)) } }
+        assertTrue("messages_sender" in indexes)
     }
 }

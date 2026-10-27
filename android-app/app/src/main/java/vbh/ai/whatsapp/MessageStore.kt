@@ -989,7 +989,7 @@ object MessageStore {
             )?.readAll(ChatDb::msg)
             .orEmpty()
 
-    /** Saved name, else history chat name, else push name from messages, else a number, else a placeholder. */
+    /** Saved name, else history chat name, else push name from their messages, else a number, else a placeholder. */
     fun title(chat: String): String {
         names.value[chat]?.takeIf { it.isNotBlank() }?.let { return it }
         val d = db
@@ -1006,6 +1006,14 @@ object MessageStore {
                     "SELECT sender_name FROM messages WHERE chat = ? AND from_me = 0 AND is_group = 0 AND sender_name != '' ORDER BY ts DESC LIMIT 1",
                     arrayOf(chat),
                 ).use { if (it.moveToFirst()) return it.getString(0) }
+            // A group member we have no 1:1 chat with: the name they wrote under in any group.
+            if (!chat.endsWith("@g.us")) {
+                d
+                    .rawQuery(
+                        "SELECT sender_name FROM messages WHERE sender = ? AND from_me = 0 AND sender_name != '' ORDER BY ts DESC LIMIT 1",
+                        arrayOf(chat),
+                    ).use { if (it.moveToFirst()) return it.getString(0) }
+            }
         }
         return fallbackTitle(chat, phones.value[chat])
     }
