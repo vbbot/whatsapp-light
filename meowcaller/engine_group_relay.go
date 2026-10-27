@@ -37,6 +37,13 @@ func (s *groupRelayAllocateState) Current() []byte {
 	return bytes.Clone(s.packet)
 }
 
+// replace swaps in a fresh allocate, after the relay link was reconnected (wa-poc patch).
+func (s *groupRelayAllocateState) replace(packet []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.packet = bytes.Clone(packet)
+}
+
 func (s *groupRelayAllocateState) SendCurrent(send func([]byte) error) error {
 	// Source of truth: https://github.com/purpshell/meowcaller/blob/bcfb7f0c076b131422c22f024dfff080448e70f4/datasheets/group-media-relay-refresh.md#L59-L67
 	if send == nil {

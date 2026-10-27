@@ -698,6 +698,22 @@ func (c *Client) KeepAlive() bool {
 	return false
 }
 
+// NetworkChanged redials when the phone switches networks while connected (Wi-Fi back from
+// mobile data, say). The old socket rides the previous network and can sit half-dead for tens
+// of seconds, and a call needs signaling on the new network to recover its media. Call from a
+// background thread.
+func (c *Client) NetworkChanged() {
+	if c.closed.Load() || c.wa.Store.ID == nil {
+		return
+	}
+	c.mc.NetworkChanged()
+	if !c.wa.IsConnected() {
+		return
+	}
+	c.l.OnLog("network changed: redialing")
+	c.wa.ResetConnection()
+}
+
 // Logout unlinks this device from the account (it disappears from Linked devices on the main
 // phone) and deletes the session. Needs a connection. Already logged out counts as done.
 func (c *Client) Logout() error {
@@ -785,7 +801,12 @@ func (c *Client) Reject(callID string) error {
 
 func (c *Client) Hangup(callID string) error {
 	if call := c.current(callID); call != nil {
-		return call.Hangup()
+		// The call ends here either way; a terminate that couldn't be sent (no connection after
+		// a network change) is retried in the background, so it isn't an error for the user.
+		if err := call.Hangup(); err != nil {
+			c.l.OnLog("hang up: " + err.Error() + ", retrying in the background")
+		}
+		return nil
 	}
 	return errors.New("no such call")
 }
