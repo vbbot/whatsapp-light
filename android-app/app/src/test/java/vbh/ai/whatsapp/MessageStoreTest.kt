@@ -64,6 +64,14 @@ class MessageStoreTest {
         assertEquals("Group", MessageStore.title("1203@g.us"))
     }
 
+    @Test fun aGroupMemberIsNamedByWhatTheyWroteUnderInAGroup() {
+        MessageStore.add(Msg("g1", "1203@g.us", "m@lid", "Priya", "hi", 1, false, true))
+        MessageStore.add(Msg("g2", "1203@g.us", "m@lid", "", "again", 2, false, true))
+        assertEquals("Priya", MessageStore.title("m@lid"))
+        MessageStore.names.value = mapOf("m@lid" to "Priya Shah")
+        assertEquals("Priya Shah", MessageStore.title("m@lid"))
+    }
+
     @Test fun unreadOnlyCountsTheirNewerMessages() {
         MessageStore.addAll(listOf(m("1", "a@lid", 10), m("2", "a@lid", 20, fromMe = true)))
         assertTrue(MessageStore.chats().single().unread)

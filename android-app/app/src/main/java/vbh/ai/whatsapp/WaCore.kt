@@ -1197,7 +1197,11 @@ object WaCore : Listener {
                 quoteText = quotedText,
             ),
         )
-        if (!isGroup) resolve(chat)
+        if (!isGroup) {
+            resolve(chat)
+        } else if (!fromMe) {
+            resolve(sender)
+        }
         // A group joined since linking: find out whether it's in a community.
         if (isGroup && MessageStore.communityKind(chat) == CommunityKind.UNKNOWN) checkCommunities()
         // Muted and archived chats stay quiet: the message is stored and shows as unread.
@@ -1208,7 +1212,7 @@ object WaCore : Listener {
                 NotificationCompat
                     .Builder(app, CH_MESSAGES)
                     .setSmallIcon(android.R.drawable.stat_notify_chat)
-                    .setContentTitle(if (isGroup && senderName.isNotBlank()) "$title · $senderName" else title)
+                    .setContentTitle(if (isGroup) "$title · ${Replies.authorName(sender, chat)}" else title)
                     .setContentText(text)
                     .setAutoCancel(true)
                     .setContentIntent(openApp())
@@ -1476,7 +1480,9 @@ object WaCore : Listener {
             val batch = History.receive(json)
             // A batch can bring the mappings that join a person's two addresses.
             val merged = ChatIdentity.mergeDuplicates()
-            resolveAll(batch.chats.keys.filterNot { it.endsWith("@g.us") } + merged)
+            // And group members, so their messages say who wrote them.
+            val members = batch.messages.filter { it.isGroup && !it.fromMe }.map { it.sender }
+            resolveAll(batch.chats.keys.filterNot { it.endsWith("@g.us") } + merged + members)
             // Communities named only by their groups still need a name.
             if (!batch.onDemand) checkCommunities()
         } catch (e: Exception) {
