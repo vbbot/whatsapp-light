@@ -388,6 +388,9 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		}
 		audioPlayoutMu.Lock()
 		defer audioPlayoutMu.Unlock()
+		if audioPlayout.Dropped > 0 {
+			log.Info().Str("call_id", callID).Uint64("dropped", audioPlayout.Dropped).Msg("inbound audio frames dropped as duplicate or late")
+		}
 		_, sink := callPlayerSink(call)
 		_ = audioPlayout.Flush(sink)
 	}()

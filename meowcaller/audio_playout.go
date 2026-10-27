@@ -18,6 +18,8 @@ type audioPlayoutBuffer struct {
 	prefill        [][]float32
 	prefillSamples int
 	started        bool
+	// Dropped counts duplicate and late frames discarded (wa-poc patch).
+	Dropped uint64
 }
 
 func newAudioPlayoutBuffer() *audioPlayoutBuffer {
@@ -31,7 +33,14 @@ func (p *audioPlayoutBuffer) Push(timestamp uint32, frame []float32, sink AudioS
 	}
 
 	delta := timestamp - p.pending.timestamp
-	if delta == 0 || delta > audioPlayoutMaxGapSamples {
+	// wa-poc patch: a duplicate or late packet (same or earlier timestamp, within the gap limit)
+	// is dropped; resetting on it restarted playout with a fresh prefill, an audible gap, every
+	// time the network reordered or repeated a packet.
+	if back := int32(delta); back <= 0 && back >= -audioPlayoutMaxGapSamples {
+		p.Dropped++
+		return false, nil
+	}
+	if delta > audioPlayoutMaxGapSamples {
 		p.reset(timestamp, frame)
 		return false, nil
 	}

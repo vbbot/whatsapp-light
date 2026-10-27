@@ -58,3 +58,9 @@
    (`requestVideoKeyframe`): frames sent before media was up, including the camera's first
    IDR, are dropped, and the sender waits for an IDR, so without the request our video stayed
    blank to the others until the encoder's next scheduled keyframe or a peer's PLI.
+
+9. **Duplicate and late audio frames.** `audioPlayoutBuffer.Push` (`audio_playout.go`) reset
+   playout on any frame whose timestamp wasn't ahead of the last one, so every repeated or
+   reordered packet restarted playback with a fresh prefill, an audible gap. Such frames (same or
+   earlier timestamp, within the 2 s gap limit) are now dropped and counted (`Dropped`, logged at
+   the end of a call's media); only a jump of more than 2 s either way resets.
