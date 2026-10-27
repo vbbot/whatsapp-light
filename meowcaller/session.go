@@ -34,6 +34,8 @@ const (
 	CallPhaseActive
 	CallPhaseEnded
 	CallPhaseWaitingRoom
+	// CallPhaseReconnecting: the media link was lost mid-call and is being restored (wa-poc patch).
+	CallPhaseReconnecting
 )
 
 // CallSession is the per-call signaling state with validated phase transitions.

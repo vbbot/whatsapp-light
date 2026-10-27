@@ -92,14 +92,26 @@ object WaCore : Listener {
         val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
         cm.registerDefaultNetworkCallback(
             object : android.net.ConnectivityManager.NetworkCallback() {
+                /** The default network last seen, to tell a switch (mobile data to Wi-Fi) from a return. */
+                private var last: android.net.Network? = null
+
                 override fun onAvailable(network: android.net.Network) {
                     Wake.hold(10_000)
                     networkBack.release()
+                    val switched = last != null && last != network
+                    last = network
                     // Only once connected before: until then, the first connect is retrying itself.
                     val c = client ?: return
                     if (connectedOnce && !c.isConnected) {
                         WaState.log("network back: reconnecting")
-                        thread(name = "wa-network") { keepAlive() }
+                        thread(name = "wa-network") {
+                            // A call's media is on the old network too; move it now.
+                            if (switched) runCatching { c.networkChanged() }
+                            keepAlive()
+                        }
+                    } else if (connectedOnce && switched) {
+                        // Still "connected" over the old network, which may be going away.
+                        thread(name = "wa-network") { runCatching { c.networkChanged() } }
                     }
                 }
             },

@@ -63,6 +63,8 @@ type engineCall struct {
 	localOrientation  int          // wa-poc patch: CVO quarter turns stamped on outgoing video RTP
 	appDataTx         *appDataSender
 	rekeyPeer         func(string) error
+	link              *relayLink            // wa-poc patch: the media's relay link, live while media runs
+	lastCheck         *events.CallTransport // wa-poc patch: the peer's latest transport check
 	group             bool
 	groupUpdate       *groupCallUpdate
 	groupReceivers    *participantReceiveRegistry
@@ -164,6 +166,7 @@ func (e *engine) install() {
 			e.onRelay(ev.CallID, ev.Data)
 			e.onRelayLatency(ev)
 		case *events.CallTransport:
+			e.answerTransportCheck(ev)
 			e.onRelay(ev.CallID, ev.Data)
 		case *events.CallTerminate:
 			e.onTerminate(ev.CallID, ev.Reason)
@@ -188,6 +191,109 @@ func (e *engine) sendReaction(callID, emoji string) error {
 		return errAppDataUnavailable
 	}
 	return sender.sendReaction(emoji)
+}
+
+// answerTransportCheck replies to the peer's <transport transport-message-type=3> (its
+// connectivity check while it tries to reach us again) with type 9 (wa-poc patch; the reference
+// documents "3 peer ICE (callee replies 9)"). The peer stops checking once answered, and only
+// moves to our new relay link if that link is up by then, so while the link is down the answer
+// waits for it (relayLinkRestored).
+func (e *engine) answerTransportCheck(ev *events.CallTransport) {
+	transport := findChild(ev.Data, "transport")
+	if transport == nil || transport.AttrGetter().OptionalString("transport-message-type") != "3" {
+		return
+	}
+	e.mu.Lock()
+	m := e.calls[ev.CallID]
+	if m == nil {
+		e.mu.Unlock()
+		return
+	}
+	m.lastCheck = ev
+	// Answered now even while the link is down (the peer hangs up after a few unanswered
+	// checks), and again once it's back (relayLinkRestored).
+	e.mu.Unlock()
+	e.sendTransportAnswer(ev)
+}
+
+// relayLinkRestored runs once a call's relay link is back: it answers a check that arrived
+// meanwhile, or, if the peer has checked before, tells it again unprompted that we're reachable.
+func (e *engine) relayLinkRestored(callID string) {
+	e.mu.Lock()
+	m := e.calls[callID]
+	if m == nil || m.lastCheck == nil {
+		e.mu.Unlock()
+		return
+	}
+	ev := m.lastCheck
+	e.mu.Unlock()
+	e.sendTransportAnswer(ev)
+}
+
+func (e *engine) sendTransportAnswer(ev *events.CallTransport) {
+	msgType := "9"
+	node := signaling.BuildTransport(&signaling.TransportParams{
+		CallID: ev.CallID, To: ev.From, CallCreator: ev.CallCreator, TransportMessageType: &msgType,
+	})
+	node.Attrs["id"] = e.nextCallNodeID()
+	if err := e.transmitCallNode(context.Background(), node); err != nil {
+		e.c.log.Warn().Err(err).Str("call_id", ev.CallID).Msg("answering transport check failed")
+		return
+	}
+}
+
+// sendTransportCheck sends the peer a connectivity check of our own, the
+// <transport transport-message-type=3><net medium=2/></transport> a WhatsApp client sends while
+// it tries to reach the other side again (wa-poc patch, experimental). After the relay link moved
+// to a new network, the peer answering it is meant to make its side refresh, so the relay starts
+// forwarding its media to the new link.
+func (e *engine) sendTransportCheck(callID string) {
+	e.mu.Lock()
+	m := e.calls[callID]
+	if m == nil || m.call == nil {
+		e.mu.Unlock()
+		return
+	}
+	call, to, creator := m.call, m.from, m.creator
+	if m.lastCheck != nil {
+		to, creator = m.lastCheck.From, m.lastCheck.CallCreator
+	}
+	e.mu.Unlock()
+	if call.State() == CallPhaseEnded {
+		return
+	}
+	node := waBinary.Node{
+		Tag:   "call",
+		Attrs: waBinary.Attrs{"to": to, "id": e.nextCallNodeID()},
+		Content: []waBinary.Node{{
+			Tag:     "transport",
+			Attrs:   waBinary.Attrs{"call-id": callID, "call-creator": creator, "transport-message-type": "3"},
+			Content: []waBinary.Node{{Tag: "net", Attrs: waBinary.Attrs{"medium": "2"}}},
+		}},
+	}
+	if err := e.transmitCallNode(context.Background(), node); err != nil {
+		e.c.log.Warn().Err(err).Str("call_id", callID).Msg("sending transport check failed")
+		return
+	}
+}
+
+// networkChanged drops every live relay link so media reconnects over the new network now,
+// rather than after the silence watchdog notices (wa-poc patch).
+func (e *engine) networkChanged() {
+	e.mu.Lock()
+	var links []*relayLink
+	for _, m := range e.calls {
+		if m.link != nil && m.link.current() != nil {
+			links = append(links, m.link)
+		}
+	}
+	e.mu.Unlock()
+	for _, l := range links {
+		l.kill()
+	}
+	if len(links) > 0 {
+		e.c.log.Info().Int("links", len(links)).Msg("network changed, reconnecting relay links")
+	}
 }
 
 // entry returns (creating if needed) the per-call state for callID.
@@ -758,9 +864,25 @@ func (e *engine) hangup(c *Call) error {
 	term.Attrs["id"] = e.nextCallNodeID()
 	e.finishCall(c.id, "hangup")
 	if err := e.transmitCallNode(context.Background(), term); err != nil {
+		// wa-poc patch: the call is already over here; with signaling down (a network change),
+		// keep trying to tell the peer instead of failing the hang-up.
+		e.c.log.Warn().Err(err).Str("call_id", c.id).Msg("send terminate failed, retrying")
+		go e.retryCallNode(c.id, term)
 		return fmt.Errorf("send terminate: %w", err)
 	}
 	return nil
+}
+
+// retryCallNode resends node every 2 s for up to 30 s, until it goes through (wa-poc patch).
+func (e *engine) retryCallNode(callID string, node waBinary.Node) {
+	for i := 0; i < 15; i++ {
+		time.Sleep(2 * time.Second)
+		if err := e.transmitCallNode(context.Background(), node); err == nil {
+			e.c.log.Info().Str("call_id", callID).Str("action", node.Tag).Int("attempt", i+2).Msg("call node sent on retry")
+			return
+		}
+	}
+	e.c.log.Warn().Str("call_id", callID).Msg("gave up sending call node")
 }
 
 // onRelay records relay data from a relaylatency/transport/ack stanza and starts media
@@ -1532,6 +1654,8 @@ type relayData struct {
 	relayTokens   [][]byte // indexed <token id=…>
 	endpoints     []relayEndpoint
 	peerJID       types.JID
+	peerPID       uint32 // wa-poc patch: the peer's relay participant ID, when given
+	hasPeerPID    bool
 }
 
 func nodeBytes(n *waBinary.Node) []byte {
@@ -1644,6 +1768,9 @@ func parseRelayData(node *waBinary.Node) *relayData {
 
 	kids := node.GetChildren()
 	peerPID := node.AttrGetter().String("peer_pid")
+	if pid, err := strconv.ParseUint(peerPID, 10, 32); err == nil {
+		rd.peerPID, rd.hasPeerPID = uint32(pid), true
+	}
 	for i := range kids {
 		child := &kids[i]
 		if child.Tag == "participant" && peerPID != "" && child.AttrGetter().String("pid") == peerPID {

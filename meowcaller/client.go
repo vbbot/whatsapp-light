@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/purpshell/meowcaller/diag"
-	"github.com/rs/zerolog"
 	"github.com/polymorfa/hypermeow"
 	"github.com/polymorfa/hypermeow/types"
+	"github.com/purpshell/meowcaller/diag"
+	"github.com/rs/zerolog"
 )
 
 // Client is the managed entry point to the WhatsApp calling stack. It wraps a
@@ -30,6 +30,10 @@ type Client struct {
 	mu             sync.Mutex
 	onIncomingCall func(*Call)
 }
+
+// NetworkChanged tells the library the device switched networks, so live calls reconnect
+// their media at once (wa-poc patch).
+func (c *Client) NetworkChanged() { c.eng.networkChanged() }
 
 // CallOptions controls media negotiated for an outbound call.
 type CallOptions struct {

@@ -46,6 +46,7 @@ data class CallUi(
                 3 -> "connecting…"
                 5 -> "call ended"
                 6 -> "waiting room"
+                7 -> "reconnecting…"
                 else -> "…"
             }
 }

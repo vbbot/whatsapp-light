@@ -64,3 +64,32 @@
    reordered packet restarted playback with a fresh prefill, an audible gap. Such frames (same or
    earlier timestamp, within the 2 s gap limit) are now dropped and counted (`Dropped`, logged at
    the end of a call's media); only a jump of more than 2 s either way resets.
+
+10. **Reconnecting a call after a network dropout (experimental).** When the relay link failed
+   mid-call (the relay aborts the association after a few seconds of silence, "Too many
+   retransmissions"), `runMedia` (`engine_media.go`) returned and the call stayed open with no
+   media; the other phone showed "Reconnecting…" until someone hung up. Now:
+   - Media goes through a `relayLink` whose channel can be replaced while the pipelines and
+     their SRTP state carry on. A watchdog treats 6 s without anything from the relay (which
+     answers the 1 Hz keepalive) as a lost link, and `Client.NetworkChanged` drops the link at
+     once when the phone switches networks.
+   - The receive loop reconnects with backoff for up to 30 s (a hung DTLS handshake is given
+     4 s), trying the call's usual relay first, then the allocation's others
+     (`reconnectEndpoint`). The fresh allocate subscribes to the peer's participant, as a group
+     call's does. Once back, both sides' video are asked for a keyframe.
+   - A reconnected link can be accepted yet carry none of the peer's media. With nothing from
+     the peer 3 s after reconnecting, it is dialled again, up to 8 times in a row.
+   - The peer's `<transport transport-message-type=3>` checks are answered with type 9 at once,
+     and again once the link is back; if the peer goes quiet after a reconnect we send it a
+     type 3 check of our own.
+   - While reconnecting, the call is in the new `CallPhaseReconnecting`. If the link can't be
+     restored, or media fails to start, a 1:1 call is hung up; a terminate that can't be sent
+     is retried for 30 s.
+
+   Dropouts on the same network recover reliably. After a switch between networks the relay
+   bridges a new link only some of the time. Tried and ruled out: moving the DTLS session to
+   the new address (the relay answers ICE checks there, with the base64 auth token as ufrag
+   and the relay key as password, but keeps sending to the first address, and takes up no DTLS
+   connection IDs); the Android app's allocate format (the peer's media then arrives on the new
+   link every time, but ours never reaches the peer, with or without a hop-by-hop SRTP layer
+   from the 1:1 relay's `hbh_key`).
