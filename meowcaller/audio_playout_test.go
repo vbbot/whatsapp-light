@@ -155,3 +155,31 @@ func frameLengths(frames [][]float32) []int {
 	}
 	return lengths
 }
+
+func TestAudioPlayoutDropsDuplicateAndLateFramesWithoutRestarting(t *testing.T) {
+	playout := newAudioPlayoutBuffer()
+	sink := &playoutTestSink{}
+	for _, timestamp := range []uint32{0, FrameSamples, 2 * FrameSamples} {
+		if _, err := playout.Push(timestamp, make([]float32, FrameSamples), sink); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !playout.started {
+		t.Fatal("playout did not start after prefill")
+	}
+	for _, timestamp := range []uint32{2 * FrameSamples, FrameSamples} {
+		if started, err := playout.Push(timestamp, make([]float32, FrameSamples), sink); err != nil || started {
+			t.Fatalf("push %d = (%v, %v), want (false, nil)", timestamp, started, err)
+		}
+	}
+	if !playout.started || playout.Dropped != 2 {
+		t.Fatalf("started=%v dropped=%d, want playout still running with 2 dropped", playout.started, playout.Dropped)
+	}
+	writes := len(sink.frames)
+	if _, err := playout.Push(3*FrameSamples, make([]float32, FrameSamples), sink); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.frames) != writes+1 {
+		t.Fatal("the next in-order frame was not played")
+	}
+}
