@@ -69,7 +69,24 @@ import com.thelightphone.sdk.ui.lightClickable
 fun ComposerScreen(chat: String) {
     val title = rememberTitle(chat)
     val state = rememberTextFieldState(Drafts.text(chat))
-    LaunchedEffect(state.text) { Drafts.setText(chat, state.text.toString()) }
+    // In a group, typing "@" at the start of a word picks someone to mention.
+    var before by remember { mutableStateOf(state.text.toString()) }
+    LaunchedEffect(state.text) {
+        val now = state.text.toString()
+        Drafts.setText(chat, now)
+        if (chat.endsWith("@g.us") && typedMentionStart(before, now, state.selection.min)) Nav.push(Screen.MentionPicker(chat))
+        before = now
+    }
+    // Back from the picker with someone: their name goes in after the "@".
+    LaunchedEffect(Unit) {
+        val (name, jid) = Drafts.takePicked(chat) ?: return@LaunchedEffect
+        state.edit {
+            val at = selection.min
+            replace(at, selection.max, "$name ")
+            selection = TextRange(at + name.length + 1)
+        }
+        Drafts.addMention(chat, name, jid)
+    }
     var replyTo by remember { mutableStateOf(Drafts.reply(chat)?.let(MessageStore::get)) }
     MessageEditor(
         title = title,
@@ -87,7 +104,8 @@ fun ComposerScreen(chat: String) {
             val body = text.toString().trim()
             if (body.isNotEmpty()) {
                 // The draft goes once WhatsApp has the message; if sending fails it's still here.
-                WaCore.sendText(chat, body, replyTo) { Drafts.clear(chat) }
+                val (wire, mentioned) = Mentions.toWire(body, Drafts.mentions(chat))
+                WaCore.sendText(chat, wire, replyTo, mentioned) { Drafts.clear(chat) }
                 Nav.pop()
             }
         },
@@ -162,10 +180,52 @@ private fun ReplyHeader(
     }
 }
 
-/** Unsent drafts (text, and the message being replied to) survive leaving the composer; process-scoped. */
+/** Whether [now] is [before] with an "@" just typed at the start of a word ([cursor] is after it). */
+internal fun typedMentionStart(
+    before: String,
+    now: String,
+    cursor: Int,
+): Boolean {
+    val at = cursor - 1
+    return now.length == before.length + 1 && at in now.indices && now[at] == '@' &&
+        (at == 0 || now[at - 1].isWhitespace()) && now.removeRange(at, at + 1) == before
+}
+
+/**
+ * Unsent drafts (text, the message being replied to, and who its `@Name`s stand for) survive
+ * leaving the composer; process-scoped.
+ */
 object Drafts {
     private val texts = mutableMapOf<String, String>()
     private val replies = mutableMapOf<String, String>()
+    private val mentions = mutableMapOf<String, List<Pair<String, String>>>()
+    private val picked = mutableMapOf<String, Pair<String, String>>()
+
+    /** The people mentioned in [chat]'s draft: each `@Name` (name to address). */
+    @Synchronized
+    fun mentions(chat: String) = mentions[chat].orEmpty()
+
+    @Synchronized
+    fun addMention(
+        chat: String,
+        name: String,
+        jid: String,
+    ) {
+        mentions[chat] = mentions(chat) + (name to jid)
+    }
+
+    /** The mention picker's choice, for the composer to put in when it's back. */
+    @Synchronized
+    fun pick(
+        chat: String,
+        name: String,
+        jid: String,
+    ) {
+        picked[chat] = name to jid
+    }
+
+    @Synchronized
+    fun takePicked(chat: String) = picked.remove(chat)
 
     @Synchronized
     fun text(chat: String) = texts[chat].orEmpty()
@@ -194,6 +254,8 @@ object Drafts {
     fun clear(chat: String) {
         texts.remove(chat)
         replies.remove(chat)
+        mentions.remove(chat)
+        picked.remove(chat)
     }
 }
 

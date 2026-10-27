@@ -26,6 +26,11 @@ sealed interface Screen {
         val chat: String,
     ) : Screen
 
+    /** Picking a member of group [chat] to @mention in its composer (typing "@"). */
+    data class MentionPicker(
+        val chat: String,
+    ) : Screen
+
     /** Changing the text of our own message [id] in [chat]. */
     data class EditMessage(
         val chat: String,
@@ -159,6 +164,7 @@ object Nav {
                 when (it) {
                     is Screen.Thread -> it.chat == chat
                     is Screen.Composer -> it.chat == chat
+                    is Screen.MentionPicker -> it.chat == chat
                     is Screen.ChatOptions -> it.chat == chat
                     is Screen.DeleteChat -> it.chat == chat
                     is Screen.MessageMenu -> it.chat == chat

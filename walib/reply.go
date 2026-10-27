@@ -63,9 +63,9 @@ func (c *Client) isOwn(jid types.JID) bool {
 
 // SendReply sends text as a reply to the message quotedID in chat. quotedSender is its author as
 // stored here (canonical JID, or "me"), quotedText what it said (the snapshot other devices show
-// if they don't have the original). id is the ID to send it with, as for SendText. Returns the
-// new message's ID.
-func (c *Client) SendReply(chat, id, text, quotedID, quotedSender, quotedText string) (string, error) {
+// if they don't have the original). id is the ID to send it with, and mentions who it @mentions,
+// as for SendText. Returns the new message's ID.
+func (c *Client) SendReply(chat, id, text, quotedID, quotedSender, quotedText, mentions string) (string, error) {
 	jid, err := parseChat(chat)
 	if err != nil {
 		return "", err
@@ -77,8 +77,7 @@ func (c *Client) SendReply(chat, id, text, quotedID, quotedSender, quotedText st
 	if p := c.quotedParticipant(jid, quotedSender); !p.IsEmpty() {
 		ci.Participant = proto.String(p.String())
 	}
-	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String(text), ContextInfo: ci}}
-	resp, err := c.wa.SendMessage(context.Background(), jid, msg, withID(id))
+	resp, err := c.wa.SendMessage(context.Background(), jid, withMentions(text, mentions, ci), withID(id))
 	if err != nil {
 		return "", err
 	}

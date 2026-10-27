@@ -983,6 +983,13 @@ object MessageStore {
     /** All chat IDs (for resolving names and the contact pickers). */
     fun chatIds(): List<String> = db?.rawQuery("SELECT DISTINCT chat FROM messages", null)?.readAll { it.getString(0) }.orEmpty()
 
+    /** Everyone who has written in group [chat] (besides us), as stored. */
+    fun groupSenders(chat: String): List<String> =
+        db
+            ?.rawQuery("SELECT DISTINCT sender FROM messages WHERE chat = ? AND from_me = 0 AND sender != ''", arrayOf(chat))
+            ?.readAll { it.getString(0) }
+            .orEmpty()
+
     /** Incoming messages in [chat] we haven't sent a read receipt for yet. */
     fun needingReadReceipt(chat: String): List<Msg> =
         db

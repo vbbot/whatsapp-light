@@ -380,8 +380,9 @@ func safeFileName(s string) string {
 
 // SendText sends a text message to a phone number (+15551234567) or JID, with message ID id (see
 // NewMessageID; "" lets WhatsApp's library pick one), and returns the message ID. Sending again
-// with the same ID after a lost reply can't deliver it twice.
-func (c *Client) SendText(chat, id, text string) (string, error) {
+// with the same ID after a lost reply can't deliver it twice. mentions lists the people it
+// @mentions (comma-separated addresses; the text carries "@<user>" for each), or "".
+func (c *Client) SendText(chat, id, text, mentions string) (string, error) {
 	var jid types.JID
 	if strings.Contains(chat, "@") {
 		var err error
@@ -391,7 +392,7 @@ func (c *Client) SendText(chat, id, text string) (string, error) {
 	} else {
 		jid = types.NewJID(strings.TrimPrefix(chat, "+"), types.DefaultUserServer)
 	}
-	resp, err := c.wa.SendMessage(context.Background(), jid, &waE2E.Message{Conversation: proto.String(text)}, withID(id))
+	resp, err := c.wa.SendMessage(context.Background(), jid, withMentions(text, mentions, nil), withID(id))
 	if err != nil {
 		return "", err
 	}

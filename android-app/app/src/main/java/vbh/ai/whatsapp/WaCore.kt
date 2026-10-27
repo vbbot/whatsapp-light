@@ -594,6 +594,7 @@ object WaCore : Listener {
         chat: String,
         text: String,
         replyTo: Msg? = null,
+        mentions: List<String> = emptyList(),
         onSent: () -> Unit = {},
     ) = bg {
         val body = text.trim()
@@ -613,10 +614,26 @@ object WaCore : Listener {
                 quoteId = replyTo?.id.orEmpty(),
                 quoteSender = replyTo?.let(::quoteSenderOf).orEmpty(),
                 quoteText = replyTo?.let(::quoteSnippet).orEmpty(),
+                mentions = mentions.joinToString(","),
             ),
         )
         onSent()
         Outbox.flush()
+    }
+
+    /**
+     * The members of group [chat] besides us, as WhatsApp addresses them (what a mention of them
+     * uses). Asks WhatsApp; offline, falls back to everyone who has written in it. Blocks.
+     */
+    fun groupMembers(chat: String): List<String> {
+        val asked =
+            runCatching {
+                client
+                    ?.groupMembers(
+                        chat,
+                    )?.jidList()
+            }.onFailure { WaState.log("group members: ${it.message}") }.getOrNull()
+        return asked?.takeIf { it.isNotEmpty() } ?: MessageStore.groupSenders(chat)
     }
 
     /** A message's author as a reply records it: "me", or the sender's JID (the chat, in 1:1 chats). */
@@ -732,11 +749,11 @@ object WaCore : Listener {
             }
 
             m.isReply -> {
-                c.sendReply(m.chat, m.id, m.text, m.quoteId, m.quoteSender, m.quoteText)
+                c.sendReply(m.chat, m.id, m.text, m.quoteId, m.quoteSender, m.quoteText, m.mentions)
             }
 
             else -> {
-                c.sendText(m.chat, m.id, m.text)
+                c.sendText(m.chat, m.id, m.text, m.mentions)
             }
         }
     }
