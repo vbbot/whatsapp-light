@@ -93,3 +93,16 @@
    connection IDs); the Android app's allocate format (the peer's media then arrives on the new
    link every time, but ours never reaches the peer, with or without a hop-by-hop SRTP layer
    from the 1:1 relay's `hbh_key`).
+
+11. **Choosing the relay for an incoming call.** An incoming call has to join the relay the
+   caller sends through, or the relay never bridges the caller's media. The call then stays on
+   connecting until the caller gives up. `getMediaRelayEndpoint` (`engine.go`) finds that relay
+   by its `is_fna` mark, but some offers mark none.
+   - In that case it now picks the endpoint without an auth token, the opposite of the
+     outbound rule. The caller's reported latencies were tried first and picked the wrong
+     relay.
+   - If none of the caller's media arrives within 2.5 s of joining a relay, `runMedia`
+     (`engine_media.go`) moves to the call's next relay, up to four times.
+   - Reconnects after a dropout start from the relay that last carried the peer's media
+     (`reconnectEndpointFrom`), not from the first pick.
+   - The relay mark still wins whenever an offer has one.
