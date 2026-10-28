@@ -22,7 +22,9 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="WhatsApp"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.WaPoc">
         <activity
             android:name=".MainActivity"

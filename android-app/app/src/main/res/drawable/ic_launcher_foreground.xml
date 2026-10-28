@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher mark: the app's speech bubble (ic_messages, scaled 1.5x) with a phone handset. White on black, inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.5"
+        android:scaleY="1.5"
+        android:translateX="24"
+        android:translateY="23.25">
+        <path
+            android:pathData="M7,4.5 H33 A5,5 0 0 1 38,9.5 V24.5 A5,5 0 0 1 33,29.5 H18 L10,36.5 V29.5 H7 A5,5 0 0 1 2,24.5 V9.5 A5,5 0 0 1 7,4.5 Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="3.0"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+    <group
+        android:scaleX="1.05"
+        android:scaleY="1.05"
+        android:translateX="41.4"
+        android:translateY="36.15">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M20.01,15.38c-1.23,0 -2.42,-0.2 -3.53,-0.56 -0.35,-0.12 -0.74,-0.03 -1.01,0.24l-1.57,1.97c-2.83,-1.35 -5.48,-3.9 -6.89,-6.83l1.95,-1.66c0.27,-0.28 0.35,-0.67 0.24,-1.02 -0.37,-1.11 -0.56,-2.3 -0.56,-3.53 0,-0.54 -0.45,-0.99 -0.99,-0.99H4.19C3.65,3 3,3.24 3,3.99 3,13.28 10.73,21 20.01,21c0.71,0 0.99,-0.63 0.99,-1.18v-3.45c0,-0.54 -0.45,-0.99 -0.99,-0.99z" />
+    </group>
+</vector>
