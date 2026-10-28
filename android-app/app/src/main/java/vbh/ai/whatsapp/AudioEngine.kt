@@ -10,6 +10,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import vbh.ai.whatsapp.walib.Client
 import vbh.ai.whatsapp.walib.Speaker
@@ -60,6 +61,10 @@ class AudioEngine(
             )
         if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(rec.audioSessionId)?.enabled = true
         if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(rec.audioSessionId)?.enabled = true
+        // The app's own level control (walib) does the rest where the phone has no gain control.
+        val agc =
+            AutomaticGainControl.isAvailable() && AutomaticGainControl.create(rec.audioSessionId)?.apply { enabled = true }?.enabled == true
+        WaState.log("audio: mic gain control ${if (agc) "on" else "not available"}")
 
         val minTrk = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_MONO, fmtIn)
         val trk =

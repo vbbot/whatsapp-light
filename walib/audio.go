@@ -37,10 +37,11 @@ type micSource struct {
 	drops     int
 	underruns int
 	lastStats time.Time
+	gain      *micGain
 }
 
 func newMicSource(log func(string)) *micSource {
-	return &micSource{silence: make([]float32, meowcaller.FrameSamples), refilling: true, log: log}
+	return &micSource{silence: make([]float32, meowcaller.FrameSamples), refilling: true, log: log, gain: newMicGain()}
 }
 
 // push adds captured mic audio (16 kHz mono s16le, any chunk size).
@@ -53,6 +54,9 @@ func (m *micSource) push(pcm []byte) {
 	for len(m.pending) >= meowcaller.FrameSamples {
 		f := make([]float32, meowcaller.FrameSamples)
 		copy(f, m.pending)
+		if m.gain != nil {
+			m.gain.process(f)
+		}
 		m.pending = m.pending[meowcaller.FrameSamples:]
 		m.queue = append(m.queue, f)
 		if len(m.queue) > maxQueuedMicFrames {
