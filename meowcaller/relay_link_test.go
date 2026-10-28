@@ -44,3 +44,52 @@ func TestReconnectEndpointTriesTheUsualRelayFirstThenTheOthers(t *testing.T) {
 		t.Fatalf("inbound second endpoint = %s; want fna (the only one)", ep.relayName)
 	}
 }
+
+func TestInboundRelayPrefersTheTokenlessRelayWhenNoneIsMarked(t *testing.T) {
+	addr := []relayAddress{{ipv4: "192.0.2.1", port: 3478}}
+	rd := &relayData{endpoints: []relayEndpoint{
+		{relayName: "a", tokenID: 2, authTokenID: 1, addresses: addr},
+		{relayName: "b", authTokenID: 1, addresses: addr},
+		{relayName: "noaddr"},
+		{relayName: "c", addresses: addr},
+	}}
+	if ep := getMediaRelayEndpoint(rd, true); ep.relayName != "c" {
+		t.Fatalf("inbound relay = %s; want the one without an auth token, c", ep.relayName)
+	}
+	if ep := getMediaRelayEndpoint(rd, false); ep.relayName != "a" {
+		t.Fatalf("outbound relay = %s; want the first with an auth token, a", ep.relayName)
+	}
+}
+
+func TestInboundRelayStillPrefersTheMarkedRelay(t *testing.T) {
+	addr := []relayAddress{{ipv4: "192.0.2.1", port: 3478}}
+	rd := &relayData{endpoints: []relayEndpoint{
+		{relayName: "plain", addresses: addr},
+		{relayName: "fna", isFNA: true, addresses: addr},
+	}}
+	if ep := getMediaRelayEndpoint(rd, true); ep.relayName != "fna" {
+		t.Fatalf("inbound relay = %s; want the FNA-marked relay", ep.relayName)
+	}
+}
+
+func TestReconnectStartsFromTheRelayThatCarriedTheCall(t *testing.T) {
+	addr := []relayAddress{{ipv4: "192.0.2.1", port: 3478}}
+	rd := &relayData{endpoints: []relayEndpoint{
+		{relayName: "a", addresses: addr},
+		{relayName: "b", authTokenID: 1, addresses: addr},
+		{relayName: "c", authTokenID: 1, addresses: addr},
+	}}
+	var got []string
+	for n := 0; n < 4; n++ {
+		got = append(got, reconnectEndpointFrom(rd, true, "b", n).relayName)
+	}
+	want := []string{"b", "c", "a", "b"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order from b = %v; want %v", got, want)
+		}
+	}
+	if ep := reconnectEndpointFrom(rd, true, "gone", 0); ep.relayName != "a" {
+		t.Fatalf("unknown relay start = %s; want the usual first pick, a", ep.relayName)
+	}
+}

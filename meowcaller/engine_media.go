@@ -228,6 +228,16 @@ const (
 	relayRedialLimit             = 8
 )
 
+// wa-poc patch: an answered call whose first relay never carries the caller's media.
+const (
+	// initialRelayWait is how long an incoming 1:1 call waits on a relay for any of the
+	// caller's media before moving to the call's next relay. Media normally arrives
+	// within half a second of joining.
+	initialRelayWait = 2500 * time.Millisecond
+	// initialRelayMoves caps those moves, so a call with every relay silent gives up.
+	initialRelayMoves = 4
+)
+
 // isGroupCall reports whether callID is a group call.
 func (e *engine) isGroupCall(callID string) bool {
 	e.mu.Lock()
@@ -334,6 +344,12 @@ func (c *reconnectCensus) active() bool {
 // reconnectEndpoint picks the endpoint for reconnect attempt n: the call's usual endpoint
 // first, then the allocation's other relays in turn.
 func reconnectEndpoint(rd *relayData, inbound bool, n int) *relayEndpoint {
+	return reconnectEndpointFrom(rd, inbound, "", n)
+}
+
+// reconnectEndpointFrom is reconnectEndpoint starting from the relay called from, when the
+// allocation has it: the relay that last carried the call (wa-poc patch).
+func reconnectEndpointFrom(rd *relayData, inbound bool, from string, n int) *relayEndpoint {
 	primary := getMediaRelayEndpoint(rd, inbound)
 	candidates := []*relayEndpoint{primary}
 	for i := range rd.endpoints {
@@ -341,7 +357,14 @@ func reconnectEndpoint(rd *relayData, inbound bool, n int) *relayEndpoint {
 			candidates = append(candidates, ep)
 		}
 	}
-	return candidates[n%len(candidates)]
+	start := 0
+	for i, ep := range candidates {
+		if ep != nil && ep.relayName == from {
+			start = i
+			break
+		}
+	}
+	return candidates[(start+n)%len(candidates)]
 }
 
 // runMedia runs the per-frame media loop over the relay DataChannel: the Player's frames
@@ -1023,6 +1046,14 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		}
 	}()
 
+	// relayName is the relay the call is on. goodRelay is the last one that carried the
+	// peer's media; reconnects start from it (wa-poc patch).
+	relayName := ""
+	if ep := getMediaRelayEndpoint(rd, inbound); ep != nil {
+		relayName = ep.relayName
+	}
+	goodRelay := relayName
+
 	// reconnect replaces a lost relay link, retrying for relayReconnectWindow, and asks both
 	// sides' video for a keyframe once it's back (wa-poc patch). It returns an error when
 	// the link can't be restored; the caller then ends the call.
@@ -1047,7 +1078,7 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 			if current == nil {
 				return cause
 			}
-			ep := reconnectEndpoint(latest, inbound, attempt)
+			ep := reconnectEndpointFrom(latest, inbound, goodRelay, attempt)
 			var subscribe []uint32
 			if !groupMode.Load() && latest.hasPeerPID {
 				subscribe = []uint32{latest.peerPID}
@@ -1065,7 +1096,8 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 					call.requestVideoKeyframe()
 					call.setPhase(prevPhase)
 				}
-				log.Info().Str("call_id", callID).Int("attempt", attempt+1).
+				relayName = ep.relayName
+				log.Info().Str("call_id", callID).Int("attempt", attempt+1).Str("relay_name", ep.relayName).
 					Dur("after", time.Since(started)).Msg("relay link restored")
 				go e.relayLinkRestored(callID)
 				return nil
@@ -1087,6 +1119,33 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 			}
 		}
 	}
+
+	// moveRelay joins the call's next relay when the current one never brought the caller's
+	// media (wa-poc patch). The current link stays up if the next relay can't be joined.
+	moveRelay := func() {
+		ep := reconnectEndpointFrom(rd, inbound, relayName, 1)
+		if ep == nil || ep.relayName == relayName {
+			return
+		}
+		cctx, cancel := context.WithTimeout(ctx, relayReconnectConnectTimeout)
+		newCh, newAllocate, err := e.connectAndAllocateTo(cctx, rd, ep, streamSsrcs, nil, 0)
+		cancel()
+		if err != nil {
+			log.Warn().Err(err).Str("call_id", callID).Str("relay_name", ep.relayName).Msg("joining the next relay failed")
+			return
+		}
+		allocateState.replace(newAllocate)
+		ch.swap(newCh)
+		var ptx [12]byte
+		_, _ = rand.Read(ptx[:])
+		ping := stun.BuildWhatsappPing(ptx, log)
+		_, _ = ch.Send(ping[:])
+		log.Info().Str("call_id", callID).Str("from", relayName).Str("to", ep.relayName).
+			Msg("no caller media on the relay, moved to the call's next relay")
+		relayName = ep.relayName
+	}
+	joinedAt := time.Now()
+	var relayMoves int
 
 	var census reconnectCensus
 	var redials int
@@ -1145,6 +1204,12 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		}
 		if census.active() && census.audio > 0 {
 			redials = 0
+		}
+		if inbound && !groupMode.Load() && rtpSeen == 0 && rtcpIn == 0 && !census.active() &&
+			relayMoves < initialRelayMoves && time.Since(joinedAt) > initialRelayWait {
+			relayMoves++
+			moveRelay()
+			joinedAt = time.Now()
 		}
 		currentRosterGeneration, activeReceivers := audioReceivers.ActiveReceiverSnapshot()
 		if !hasRosterGeneration || currentRosterGeneration != rosterGeneration {
@@ -1258,6 +1323,7 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		case relay.RelayPacketOther:
 			continue
 		}
+		goodRelay = relayName
 		if rtpSeen++; rtpSeen == 1 {
 			log.Info().Int("bytes", n).Msg("first RTP-classified packet from relay, relay is bridging the peer's media")
 		}

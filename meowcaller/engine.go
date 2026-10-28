@@ -1811,6 +1811,13 @@ func getMediaRelayEndpoint(rd *relayData, inbound bool) *relayEndpoint {
 				return e
 			}
 		}
+		// wa-poc patch: some offers mark no FNA relay. The caller's relay is then the one
+		// without an auth token, the opposite of the outbound rule below.
+		for i := range rd.endpoints {
+			if e := &rd.endpoints[i]; e.authTokenID == 0 && len(e.addresses) > 0 {
+				return e
+			}
+		}
 	}
 	for i := range rd.endpoints {
 		if e := &rd.endpoints[i]; !e.isFNA && e.authTokenID != 0 {
