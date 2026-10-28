@@ -52,6 +52,7 @@ func TestMicRefillsCushionThenPlays(t *testing.T) {
 
 func TestMicDropsOldestBeyondMax(t *testing.T) {
 	m := newMicSource(nil)
+	m.gain = nil // frames are told apart by their sample values
 	for i := 1; i <= maxQueuedMicFrames+2; i++ {
 		m.push(frameBytes(int16(i * 100)))
 	}
