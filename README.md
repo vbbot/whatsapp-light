@@ -68,3 +68,7 @@ secrets:
 fork), [meowcaller](https://github.com/purpshell/meowcaller),
 [Light SDK](https://github.com/lightphone/light-sdk), and [Chats](https://github.com/fenleon/chats) for the
 typography and UI/UX inspiration.
+
+## License
+
+Released under the [MIT License](LICENSE).
