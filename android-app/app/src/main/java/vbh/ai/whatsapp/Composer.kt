@@ -1,9 +1,7 @@
 package vbh.ai.whatsapp
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,10 +12,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.delete
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -28,7 +28,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
@@ -59,6 +61,8 @@ import com.thelightphone.sdk.ui.designVerticalPxToSp
 import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.keyboard.LightEmbeddedLp3Keyboard
 import com.thelightphone.sdk.ui.lightClickable
+import kotlin.math.ceil
+import kotlin.math.floor
 
 /**
  * Writing a message, optionally as a reply: the pending reply's quote line sits directly above
@@ -292,8 +296,26 @@ private fun MessageEditor(
     val keyboard: Lp3KeyboardViewModel<*> =
         viewModel<EnQwertyLp3KeyboardViewModel<*>>(viewModelStoreOwner = store, factory = keyboardFactory(callback))
     val colors = LightThemeTokens.colors
-    val inputStyle = headingStyle()
+    val inputStyle = messageStyle()
     var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val scroll = rememberScrollState()
+    var viewportHeight by remember { mutableStateOf(0) }
+    val underlineGapPx = with(LocalDensity.current) { INPUT_UNDERLINE_GAP_GRID_UNITS.gridUnitsAsDp().roundToPx() }
+    val underlinePx = with(LocalDensity.current) { INPUT_UNDERLINE_THICKNESS_PX.designVerticalPxToDp().roundToPx() }
+    // Keep the caret, and the rule under it, in view as the draft grows or the caret moves.
+    LaunchedEffect(state.selection, textLayout, viewportHeight, scroll.maxValue) {
+        val layout = textLayout ?: return@LaunchedEffect
+        val caret = layout.getCursorRect(state.selection.min.coerceIn(0, layout.layoutInput.text.length))
+        val target =
+            caretFollowTarget(
+                caretTop = caret.top,
+                caretBottom = caret.bottom + underlineGapPx + underlinePx,
+                viewportHeight = viewportHeight,
+                current = scroll.value,
+                max = scroll.maxValue,
+            ) ?: return@LaunchedEffect
+        scroll.scrollTo(target)
+    }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
         LightTopBar(
@@ -307,43 +329,47 @@ private fun MessageEditor(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .pointerInput(Unit) {
-                        // Tap or drag in the text to move the cursor.
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            textLayout?.let { l -> state.edit { selection = TextRange(l.getOffsetForPosition(down.position)) } }
-                            drag(down.id) { change ->
-                                textLayout?.let { l -> state.edit { selection = TextRange(l.getOffsetForPosition(change.position)) } }
-                                change.consume()
+                    .onSizeChanged { viewportHeight = it.height }
+                    .pointerInput(scroll) {
+                        // Tap the text to put the cursor there; the layout is in scrolled coordinates.
+                        detectTapGestures { position ->
+                            textLayout?.let { l ->
+                                val at = l.getOffsetForPosition(Offset(position.x, position.y + scroll.value))
+                                state.edit { selection = TextRange(at) }
                             }
                         }
                     },
                 contentAlignment = Alignment.TopStart,
             ) {
-                Column(Modifier.fillMaxWidth()) {
-                    BasicText(
-                        text = state.text.toString(),
-                        style = inputStyle,
-                        onTextLayout = { textLayout = it },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(INPUT_UNDERLINE_GAP_GRID_UNITS.gridUnitsAsDp()))
-                    Spacer(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(INPUT_UNDERLINE_THICKNESS_PX.designVerticalPxToDp())
-                            .background(colors.content),
-                    )
-                }
-                textLayout?.let { layout ->
-                    val rect = layout.getCursorRect(state.selection.min.coerceIn(0, layout.layoutInput.text.length))
-                    Box(
-                        Modifier
-                            .offset { IntOffset(rect.left.toInt(), rect.top.toInt()) }
-                            .width(2.dp)
-                            .height(with(LocalDensity.current) { rect.height.toDp() })
-                            .background(colors.content),
-                    )
+                Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+                    // One content block: the text, the rule under it, and the caret, so all three scroll together.
+                    Box(Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth()) {
+                            BasicText(
+                                text = state.text.toString(),
+                                style = inputStyle,
+                                onTextLayout = { textLayout = it },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(INPUT_UNDERLINE_GAP_GRID_UNITS.gridUnitsAsDp()))
+                            Spacer(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(INPUT_UNDERLINE_THICKNESS_PX.designVerticalPxToDp())
+                                    .background(colors.content),
+                            )
+                        }
+                        textLayout?.let { layout ->
+                            val rect = layout.getCursorRect(state.selection.min.coerceIn(0, layout.layoutInput.text.length))
+                            Box(
+                                Modifier
+                                    .offset { IntOffset(rect.left.toInt(), rect.top.toInt()) }
+                                    .width(2.dp)
+                                    .height(with(LocalDensity.current) { rect.height.toDp() })
+                                    .background(colors.content),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -368,10 +394,10 @@ private fun MessageEditor(
     }
 }
 
-/** The SDK's input style: Heading, at this screen's scale. */
+/** The thread's paragraph style: a draft reads at the same size as the message it becomes. */
 @Composable
-private fun headingStyle(): androidx.compose.ui.text.TextStyle {
-    val t = LightThemeTokens.typography.heading
+private fun messageStyle(): androidx.compose.ui.text.TextStyle {
+    val t = LightThemeTokens.typography.paragraph
 
     @Composable
     fun androidx.compose.ui.unit.TextUnit.scaled() =
@@ -382,6 +408,27 @@ private fun headingStyle(): androidx.compose.ui.text.TextStyle {
         lineHeight = t.lineHeight.scaled(),
         letterSpacing = t.letterSpacing.scaled(),
     )
+}
+
+/**
+ * Where to scroll to keep the caret in view, or null when it already is. [caretBottom] includes the
+ * space below the text, so the rule under the last line scrolls into view with it.
+ */
+internal fun caretFollowTarget(
+    caretTop: Float,
+    caretBottom: Float,
+    viewportHeight: Int,
+    current: Int,
+    max: Int,
+): Int? {
+    if (viewportHeight <= 0 || max <= 0) return null
+    val top = floor(caretTop).toInt()
+    val bottom = ceil(caretBottom).toInt()
+    return when {
+        bottom > current + viewportHeight -> (bottom - viewportHeight).coerceIn(0, max).takeIf { it != current }
+        top < current -> top.coerceIn(0, max).takeIf { it != current }
+        else -> null
+    }
 }
 
 /** Holds one editor's keyboard view model, cleared when the editor leaves the screen. */
