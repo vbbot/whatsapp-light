@@ -211,6 +211,7 @@ object WaCore : Listener {
         ChatIdentity.canonical = null
         runCatching { old?.close() }.onFailure { WaState.log("close failed: ${it.message}") }
         stopRing()
+        CallTone.stop()
         WaState.call.value = null
         Wake.inCall(false)
         app.getSystemService(NotificationManager::class.java).cancelAll()
@@ -1023,6 +1024,7 @@ object WaCore : Listener {
         val group = groupCalls[callID]
         CallLog.start(callID, group?.group?.ifEmpty { null } ?: peer, incoming = true, video = video, members = group?.members.orEmpty())
         resolve(peer)
+        CallTone.stop()
         ringtone = RingtoneManager.getRingtone(app, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.also { it.play() }
         val caller =
             androidx.core.app.Person
@@ -1158,6 +1160,7 @@ object WaCore : Listener {
             val p = phase.toInt()
             it.copy(phase = p, connectedAt = if (p == 4 && it.connectedAt == 0L) System.currentTimeMillis() else it.connectedAt)
         } ?: WaState.call.value
+        CallTone.follow(WaState.call.value)
     }
 
     override fun onCallEnded(
@@ -1168,6 +1171,7 @@ object WaCore : Listener {
         groupCalls.remove(callID)
         val rec = CallLog.ended(callID)
         stopRing()
+        CallTone.stop()
         CallTelecom.ended(callID, rec?.outcome)
         if (rec?.outcome == CallRecord.Outcome.MISSED) notifyMissed(rec)
         audio.stop()
