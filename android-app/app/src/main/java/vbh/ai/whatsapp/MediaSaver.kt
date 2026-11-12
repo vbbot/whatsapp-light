@@ -134,21 +134,10 @@ object MediaSaver {
 /** A photo, video, GIF or voice message that has something to save: not a sticker, deleted or still sending. */
 internal fun Msg.canSaveMedia(): Boolean {
     if (isDeleted || pending) return false
-    return when {
-        isVoice -> {
-            mediaRef.isNotEmpty() || Media.audioFile(id).exists()
-        }
-
-        isVideo -> {
-            mediaRef.isNotEmpty() || Media.videoFile(id).exists()
-        }
-
-        text.startsWith(PHOTO_PREFIX) -> {
-            mediaRef.isNotEmpty() || (media.isNotEmpty() && !isThumbnailFile(media))
-        }
-
-        else -> false
-    }
+    if (isVoice) return mediaRef.isNotEmpty() || Media.audioFile(id).exists()
+    if (isVideo) return mediaRef.isNotEmpty() || Media.videoFile(id).exists()
+    if (!text.startsWith(PHOTO_PREFIX)) return false
+    return mediaRef.isNotEmpty() || (media.isNotEmpty() && !isThumbnailFile(media))
 }
 
 private const val PHOTO_PREFIX = "[image]"
