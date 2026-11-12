@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,13 +34,14 @@ import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextVariant
 import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.lightClickable
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * What a long press on a message offers, laid out like a chat's options: who said what, centred,
  * then full-width actions, and ✕ to close: the reaction rows first (LIKE and REACT, or EDIT and
  * REMOVE REACTION once we've reacted), then REPLY, EDIT (our own text messages, while WhatsApp
- * allows it) and DELETE. A message of ours not sent yet offers only RETRY (if WhatsApp refused
- * it) and DELETE.
+ * allows it), COPY, SAVE (photos, videos, GIFs and voice messages) and DELETE. A message of ours
+ * not sent yet offers only RETRY (if WhatsApp refused it) and DELETE.
  */
 @Composable
 fun MessageMenuScreen(
@@ -54,6 +56,12 @@ fun MessageMenuScreen(
         return
     }
     val author = Replies.authorName(if (m.fromMe) "me" else m.sender, chat)
+    var saving by remember { mutableStateOf(false) }
+    // A slow download can outlive the menu; don't pop whatever screen is open by then.
+    val open = remember { AtomicBoolean(true) }
+    DisposableEffect(Unit) {
+        onDispose { open.set(false) }
+    }
     ScreenColumn {
         Spacer(Modifier.weight(21f))
         Column(Modifier.fillMaxWidth().padding(horizontal = 1.5f.gridUnitsAsDp()), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -109,6 +117,29 @@ fun MessageMenuScreen(
                     ToggleButton("COPY") {
                         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("message", copy))
                         Nav.pop()
+                    }
+                }
+                if (m.canSaveMedia()) {
+                    val context = LocalContext.current
+                    if (saving) {
+                        ToggleButton("SAVING…") {}
+                    } else {
+                        ToggleButton("SAVE") {
+                            saving = true
+                            MediaSaver.save(context, m) { error ->
+                                saving = false
+                                if (error == null) {
+                                    android.widget.Toast
+                                        .makeText(context, "Saved to Downloads", android.widget.Toast.LENGTH_SHORT)
+                                        .show()
+                                    if (open.get()) Nav.pop()
+                                } else {
+                                    android.widget.Toast
+                                        .makeText(context, "Couldn't save: $error", android.widget.Toast.LENGTH_SHORT)
+                                        .show()
+                                }
+                            }
+                        }
                     }
                 }
                 if (m.pending) {
