@@ -135,10 +135,18 @@ object MediaSaver {
 internal fun Msg.canSaveMedia(): Boolean {
     if (isDeleted || pending) return false
     return when {
-        isVoice -> mediaRef.isNotEmpty() || Media.audioFile(id).exists()
-        isVideo -> mediaRef.isNotEmpty() || Media.videoFile(id).exists()
-        text.startsWith(PHOTO_PREFIX) ->
+        isVoice -> {
+            mediaRef.isNotEmpty() || Media.audioFile(id).exists()
+        }
+
+        isVideo -> {
+            mediaRef.isNotEmpty() || Media.videoFile(id).exists()
+        }
+
+        text.startsWith(PHOTO_PREFIX) -> {
             mediaRef.isNotEmpty() || (media.isNotEmpty() && !isThumbnailFile(media))
+        }
+
         else -> false
     }
 }
