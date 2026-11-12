@@ -41,6 +41,12 @@ class SaveMediaTest {
         assertFalse(photo(status = Status.NOT_SENT).canSaveMedia())
         // A photo with no local file and no download info has nothing to save.
         assertFalse(msg("[image]").canSaveMedia())
+        // A preview with nowhere to download the full photo from has nothing to save.
+        assertFalse(msg("[image]", media = "/m/t_t.jpg").canSaveMedia())
+        // A video with nothing local and no download info has nothing to save.
+        assertFalse(msg("[video] clip").canSaveMedia())
+        // A voice message with nothing local and no download info has nothing to save.
+        assertFalse(msg("[voice message]").canSaveMedia())
     }
 
     @Test fun eachKindGetsItsMimeType() {
